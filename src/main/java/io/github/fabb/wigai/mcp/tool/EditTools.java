@@ -2,6 +2,7 @@ package io.github.fabb.wigai.mcp.tool;
 
 import io.github.fabb.wigai.bitwig.BitwigEditFacade;
 import io.github.fabb.wigai.bitwig.BitwigSessionFacade;
+import io.github.fabb.wigai.bitwig.DeviceCatalog;
 import io.github.fabb.wigai.common.error.BitwigApiException;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
@@ -288,6 +289,7 @@ public class EditTools {
                 + "Values are normalized 0-1; the response shows Bitwig's displayed value so you can check units.",
             DEVICE_PROPS + ",\n" + CHAIN_PROPS + """
                 ,
+                "verify": {"type": "boolean", "description": "Wait for each value to be confirmed (default true); false is faster for bulk writes"},
                 "parameters": {"type": "array", "items": {"type": "object", "properties": {
                     "name": {"type": "string"},
                     "page": {"type": "integer", "minimum": 0},
@@ -306,7 +308,7 @@ public class EditTools {
                     list.add(new BitwigEditFacade.ParamAssignment(pa.integer("page"), pa.integer("index"), pa.string("name"), v));
                 }
                 return f.setDeviceParameters(a.track(), a.requiredInt("device_index"), a.string("chain"),
-                    a.integer("chain_device_index"), list);
+                    a.integer("chain_device_index"), list, !Boolean.FALSE.equals(a.bool("verify")));
             }));
 
         // ---- clips and files
@@ -380,6 +382,56 @@ public class EditTools {
 
         specs.add(tool("undo", "Undo the last change in Bitwig.", "", null, f, log, a -> f.undo(false)));
         specs.add(tool("redo", "Redo the last undone change in Bitwig.", "", null, f, log, a -> f.undo(true)));
+
+        return specs;
+    }
+
+    /** Device knowledge: what is installed, what it is for, and what its controls do. */
+    public static List<McpServerFeatures.SyncToolSpecification> catalogSpecifications(
+            BitwigEditFacade f, DeviceCatalog c, StructuredLogger log) {
+        List<McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>();
+
+        specs.add(tool("list_installed_devices",
+            "Find devices and plugins installed on this machine (Bitwig built-ins, CLAP plugins, LV2 plugins usable "
+                + "through Carla). The query is matched against names, vendors, categories, descriptions and the "
+                + "device guide's 'use for' text, best matches first; e.g. 'vocal compressor', 'reverb', 'pitch'. "
+                + "Use it to pick candidates before recommending or inserting a device.",
+            """
+                "query": {"type": "string"},
+                "kind": {"type": "string", "enum": ["bitwig", "clap", "lv2"]}""",
+            null, f, log, a -> c.listInstalled(a.string("query"), a.string("kind"))));
+
+        specs.add(tool("describe_device",
+            "Everything known about one device: what it is for and how to use it (device guide), its plugin "
+                + "description, its chains, and every control's real range, units and options. Controls are measured "
+                + "the first time a device is described and cached (with a scan history); pass track/device_index to "
+                + "measure a device already in the project (its values are restored), or just a name to measure it on "
+                + "a temporary track. Measuring is skipped while the transport plays.",
+            TRACK_PROPS + """
+                ,
+                "name": {"type": "string", "description": "Bitwig device name, plugin name or CLAP id"},
+                "device_index": {"type": "integer", "minimum": 0},
+                "chain": {"type": "string"},
+                "chain_device_index": {"type": "integer", "minimum": 0},
+                "scan": {"type": "boolean", "description": "Measure controls if not cached (default true)"},
+                "rescan": {"type": "boolean", "description": "Measure again even if cached"}""",
+            null, f, log,
+            a -> {
+                Integer track = a.integer("track_index") != null || a.string("track_name") != null ? a.track() : null;
+                return c.describe(a.string("name"), track, a.integer("device_index"), a.string("chain"),
+                    a.integer("chain_device_index"), !Boolean.FALSE.equals(a.bool("scan")), Boolean.TRUE.equals(a.bool("rescan")));
+            }));
+
+        specs.add(tool("fetch_device_docs",
+            "Fetch Bitwig's own description of every built-in device from Bitwig's online user guide into the local "
+                + "catalog, so describe_device can include it (field bitwig_docs). Run once, and again after a Bitwig "
+                + "update; needs internet access.",
+            "", null, f, log, a -> c.fetchDocs()));
+
+        specs.add(tool("catalog_status",
+            "Device catalog coverage and freshness: entries and scans per kind, the most recent scans with what "
+                + "changed, scans that failed, and scans made on an older Bitwig version.",
+            "", null, f, log, a -> c.status()));
 
         return specs;
     }

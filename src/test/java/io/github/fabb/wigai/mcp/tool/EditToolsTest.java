@@ -91,13 +91,13 @@ class EditToolsTest {
     @Test
     void setDeviceParametersBuildsAssignments() throws Exception {
         when(facade.resolveTrackIndex(1, null, "set_device_parameters")).thenReturn(1);
-        when(facade.setDeviceParameters(eq(1), eq(0), isNull(), isNull(), anyList())).thenReturn(Map.of());
+        when(facade.setDeviceParameters(eq(1), eq(0), isNull(), isNull(), anyList(), eq(true))).thenReturn(Map.of());
         var r = call("set_device_parameters", Map.of("track_index", 1, "device_index", 0,
             "parameters", List.of(Map.of("name", "Mix", "value", 0.35), Map.of("page", 1, "index", 2, "value", 1))));
         McpResponseTestUtils.validateSuccessResponse(r);
         verify(facade).setDeviceParameters(eq(1), eq(0), isNull(), isNull(), eq(List.of(
             new BitwigEditFacade.ParamAssignment(null, null, "Mix", 0.35),
-            new BitwigEditFacade.ParamAssignment(1, 2, null, 1.0))));
+            new BitwigEditFacade.ParamAssignment(1, 2, null, 1.0))), eq(true));
     }
 
     @Test

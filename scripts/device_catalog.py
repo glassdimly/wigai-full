@@ -10,6 +10,7 @@ Two steps:
              Bitwig through the WigAI MCP server: every remote-control page, each control's display
              at 0/25/50/75/100%, the options of switch-like controls, and the chains inside devices.
              Needs an EMPTY project open; it inserts and deletes devices on a scratch track.
+  docs       Copy each Bitwig device's description from Bitwig's online user guide into the local catalog.
   render     Write the catalog as Markdown.
 
 The catalog lives in ~/.local/share/wigai-full/ (override with WIGAI_CATALOG_DIR). The extension's
@@ -18,6 +19,7 @@ describe_device / list_installed_devices tools read it from there.
 usage:
   python3 scripts/device_catalog.py inventory
   python3 scripts/device_catalog.py scan [--only NAME_SUBSTRING] [--kind bitwig|clap] [--rescan]
+  python3 scripts/device_catalog.py docs       (copy Bitwig's device descriptions from its online user guide)
   python3 scripts/device_catalog.py render
   python3 scripts/device_catalog.py update-resource   (maintainers: refresh src/main/resources/bitwig-devices.txt)
 """
@@ -201,6 +203,48 @@ def inventory():
     print("written:", CATALOG)
 
 
+# ---------------------------------------------------------------- Bitwig's own device descriptions
+
+USERGUIDE = "https://www.bitwig.com/userguide/latest/"
+STOP_AT = {"modulator", "modulators", "grid_modules", "the_grid", "legacy_devices", "credits"}
+
+
+def html_text(fragment):
+    import html
+    return html.unescape(re.sub(r"\s+", " ", re.sub("<[^>]+>", " ", fragment))).strip()
+
+
+def fetch_docs():
+    """Copies each device's description from Bitwig's online user guide into the local catalog.
+
+    The text is Bitwig's; it is fetched onto the user's machine for reference and not redistributed."""
+    cat = load()
+    index = urllib.request.urlopen(USERGUIDE + "device_descriptions", timeout=60).read().decode("utf-8", "replace")
+    links = re.findall(r'href="/userguide/latest/([^"#]+)"', index)
+    pages = []
+    for link in links[links.index("device_descriptions") + 1:]:
+        if link in STOP_AT:
+            break
+        if link not in pages:
+            pages.append(link)
+    found = 0
+    for page in pages:
+        text = urllib.request.urlopen(USERGUIDE + page, timeout=60).read().decode("utf-8", "replace")
+        body = text[text.find("<main"):] if "<main" in text else text
+        for part in re.split(r"<h3[^>]*>", body)[1:]:
+            name = re.sub(r"^[\d.\s\xa0]+", "", html_text(part.split("</h3>")[0]))
+            paras = [html_text(x) for x in re.findall(r"<p[^>]*>(.*?)</p>", part, re.S)]
+            paras = [x for x in paras if x and "Was this helpful" not in x]
+            if name in cat["bitwig"] and paras:
+                cat["bitwig"][name]["bitwig_docs"] = {"text": " ".join(paras[:6])[:1500], "url": USERGUIDE + page}
+                found += 1
+        time.sleep(0.3)
+    cat["docs_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    save(cat)
+    missing = [n for n, e in cat["bitwig"].items() if "bitwig_docs" not in e]
+    print(f"descriptions for {found} Bitwig devices from {len(pages)} user-guide pages; without one: {', '.join(missing) or 'none'}")
+
+
 # ---------------------------------------------------------------- live scan
 
 class Mcp:
@@ -281,12 +325,21 @@ def scan_device(m, track, kind, key, entry, rescan):
         except RuntimeError:
             scan["chains"] = []
         base = m.tool("get_device_parameters", track_index=track, device_index=di)
+        deadline = time.time() + (4 if kind == "clap" else 0)
+        while not base["page_names"] and time.time() < deadline:  # plugins publish their pages after loading
+            time.sleep(0.5)
+            base = m.tool("get_device_parameters", track_index=track, device_index=di)
         scan["page_names"] = base["page_names"]
         controls = [(pg["page"], p["index"], p["name"], p["value"], p["display"])
                     for pg in base["pages"] for p in pg["parameters"]]
         samples = {(pg, ix): [] for pg, ix, *_ in controls}
+        if not controls:
+            scan["note"] = ("Bitwig exposes no remote-control pages for this device, so its parameters cannot be "
+                            "reached through the API (plugins only get pages when they define them).")
+            entry["scan"] = scan
+            return True
         for x in SWEEP:
-            m.tool("set_device_parameters", track_index=track, device_index=di,
+            m.tool("set_device_parameters", track_index=track, device_index=di, verify=False,
                    parameters=[{"page": pg, "index": ix, "value": x} for pg, ix, *_ in controls])
             now = m.tool("get_device_parameters", track_index=track, device_index=di)
             for pg in now["pages"]:
@@ -299,7 +352,7 @@ def scan_device(m, track, kind, key, entry, rescan):
                              and describe_control(samples[(pg, ix)])["kind"] == "options"]
             dense = {k: [] for k in page_controls}
             for x in ENUM_SWEEP:
-                m.tool("set_device_parameters", track_index=track, device_index=di,
+                m.tool("set_device_parameters", track_index=track, device_index=di, verify=False,
                        parameters=[{"page": pg, "index": ix, "value": x} for pg, ix in page_controls])
                 now = m.tool("get_device_parameters", track_index=track, device_index=di, page=pg_index)
                 for p in now["pages"][0]["parameters"]:
@@ -426,8 +479,10 @@ def main():
     sc.add_argument("--force", action="store_true")
     sub.add_parser("render")
     sub.add_parser("update-resource")
+    sub.add_parser("docs")
     a = ap.parse_args()
-    {"inventory": inventory, "scan": lambda: scan(a), "render": render, "update-resource": update_resource}[a.cmd]()
+    {"inventory": inventory, "scan": lambda: scan(a), "render": render, "update-resource": update_resource,
+     "docs": fetch_docs}[a.cmd]()
 
 
 if __name__ == "__main__":

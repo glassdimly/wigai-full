@@ -243,7 +243,11 @@ public class BitwigEditFacade {
     }
 
     boolean waitFor(BooleanSupplier condition) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        return waitFor(condition, timeoutMs);
+    }
+
+    boolean waitFor(BooleanSupplier condition, long limitMs) {
+        long deadline = System.currentTimeMillis() + Math.min(limitMs, timeoutMs);
         while (System.currentTimeMillis() < deadline) {
             if (condition.getAsBoolean()) {
                 return true;
@@ -1024,6 +1028,16 @@ public class BitwigEditFacade {
 
     public Map<String, Object> setDeviceParameters(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
                                                    List<ParamAssignment> assignments) throws BitwigApiException {
+        return setDeviceParameters(trackIndex, deviceIndex, chain, chainDeviceIndex, assignments, true);
+    }
+
+    /**
+     * With verify=false values are written without waiting for each to be confirmed (one short settle per
+     * page instead), for bulk writes such as sweeping every control of a device.
+     */
+    public Map<String, Object> setDeviceParameters(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
+                                                   List<ParamAssignment> assignments, boolean verify)
+            throws BitwigApiException {
         final String operation = "setDeviceParameters";
         focusTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
         String[] pageNames = editPage.pageNames().get();
@@ -1071,10 +1085,15 @@ public class BitwigEditFacade {
             }
             RemoteControl t = target;
             // Bitwig ignores set() on remote controls from extensions with no bound hardware; setImmediately() applies.
+            double before = t.value().get();
             t.value().setImmediately(a.value());
-            boolean applied = waitFor(() -> Math.abs(t.value().get() - a.value()) < 1e-3);
-            settle();
-            r.put("applied", applied);
+            if (verify) {
+                // Stepped controls snap to the nearest step, so "applied" also accepts any change.
+                boolean applied = waitFor(() -> Math.abs(t.value().get() - a.value()) < 1e-3
+                    || Math.abs(t.value().get() - before) > 1e-6, 400);
+                settle();
+                r.put("applied", applied || Math.abs(before - a.value()) < 1e-3);
+            }
             r.put("status", "success");
             r.put("page", foundPage);
             r.put("name", t.name().get());
@@ -1225,6 +1244,10 @@ public class BitwigEditFacade {
 
     public Application application() {
         return application;
+    }
+
+    public boolean isPlaying() {
+        return transport.isPlaying().get();
     }
 
     public List<Map<String, Object>> listActions(String filter) {
