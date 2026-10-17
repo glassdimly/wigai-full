@@ -769,11 +769,20 @@ public class BitwigEditFacade {
         Map<String, Object> result = new LinkedHashMap<>();
         if (slotIndex != null) {
             ClipLauncherSlot slot = slotAt(track, slotIndex, operation);
+            int tracksBefore = countTracks();
             slot.replaceInsertionPoint().insertFile(path);
-            boolean ok = waitFor(() -> slot.hasContent().get());
+            boolean ok = waitFor(() -> slot.hasContent().get() || countTracks() > tracksBefore);
+            settle();
             result.put("track_index", trackIndex);
             result.put("slot_index", slotIndex);
-            result.put("inserted", ok);
+            result.put("inserted", slot.hasContent().get());
+            int created = countTracks() - tracksBefore;
+            if (created > 0) {
+                // A MIDI file with several tracks or channels is split by Bitwig into one new track each.
+                result.put("new_tracks_created", created);
+                result.put("note", "Bitwig split the file into new tracks instead of filling the slot; "
+                    + "merge the MIDI into one track on one channel to import it as a single clip");
+            }
         } else {
             int before = countTracks();
             track.afterTrackInsertionPoint().insertFile(path);

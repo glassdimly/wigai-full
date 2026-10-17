@@ -906,7 +906,7 @@ Tools from [Epic 9](./prd/epic-9.md). Shared rules:
 *   **Parameters**: track targeting, `path` (absolute, required), `slot_index` (optional).
 *   **Returns**: with `slot_index`: `{ "track_index": 0, "slot_index": 1, "inserted": true }`; without: `{ "new_track_index": 1, "inserted": true }` (Bitwig inserts the file as a new track after the given one).
 *   **Errors**: `INVALID_PARAMETER` if the file does not exist.
-*   **Notes**: The Controller API cannot place clips on the arranger timeline.
+*   **Notes**: The Controller API cannot place clips on the arranger timeline. Bitwig splits a MIDI file with several tracks or channels into one new track each instead of filling the slot; the result then reports `new_tracks_created` and `inserted: false`.
 
 #### `create_clip`
 *   **Parameters**: track targeting, `slot_index`, `length_beats` (integer ≥ 1).
