@@ -28,6 +28,10 @@ public class EditTools {
                 ,
                 "device_index": {"type": "integer", "minimum": 0, "description": "0-based device index on the track (see list_devices_on_track)"}""";
 
+    private static final String CHAIN_PROPS = """
+                "chain": {"type": "string", "description": "A chain inside the device, e.g. 'Modulator' or 'Carrier' (Vocoder), 'FX' (FX devices), or 'layer:0' / 'layer:Name' (layer devices). See get_device_chains."},
+                "chain_device_index": {"type": "integer", "minimum": 0, "description": "Device index within that chain (required with chain)"}""";
+
     private static final String POSITION_PROPS = """
                 "position": {"type": "string", "enum": ["start", "end"], "description": "Where in the chain to insert (default end)"},
                 "after_device_index": {"type": "integer", "minimum": 0, "description": "Insert directly after this device instead"}""";
@@ -211,39 +215,59 @@ public class EditTools {
             "", null, f, log, a -> f.listBitwigDeviceNames()));
 
         specs.add(tool("insert_device",
-            "Insert a device on a track: a Bitwig built-in by name (e.g. 'EQ+', 'Vocoder', 'Reverb'), "
-                + "or a plugin by CLAP id (e.g. 'org.surge-synth-team.surge-xt') or VST3 class id.",
+            "Insert a device on a track: a Bitwig built-in by name (e.g. 'EQ+', 'Audio Receiver', 'Reverb'), "
+                + "or a plugin by CLAP id (e.g. 'org.surge-synth-team.surge-xt') or VST3 class id. "
+                + "To insert inside a device's chain, give device_index (the container) and chain; "
+                + "after_device_index then refers to a device in that chain.",
             TRACK_PROPS + ",\n" + POSITION_PROPS + """
                 ,
+                "device_index": {"type": "integer", "minimum": 0, "description": "Container device, only with chain"},
+                "chain": {"type": "string", "description": "Chain inside device_index, e.g. 'Modulator'. See get_device_chains."},
                 "bitwig_device": {"type": "string"},
                 "clap_id": {"type": "string"},
                 "vst3_id": {"type": "string"}""",
             null, f, log,
-            a -> f.insertDevice(a.track(), a.string("bitwig_device"), a.string("clap_id"), a.string("vst3_id"),
-                a.string("position"), a.integer("after_device_index"))));
+            a -> f.insertDevice(a.track(), a.integer("device_index"), a.string("chain"), a.string("bitwig_device"),
+                a.string("clap_id"), a.string("vst3_id"), a.string("position"), a.integer("after_device_index"))));
+
+        specs.add(tool("get_device_chains",
+            "List the chains inside a device and the devices in each: slots such as a Vocoder's 'Modulator' and "
+                + "'Carrier' or an FX device's 'FX', and layers of FX/Instrument Layer devices.",
+            DEVICE_PROPS, "\"device_index\"", f, log,
+            a -> f.getDeviceChains(a.track(), a.requiredInt("device_index"))));
 
         String copyProps = """
                 "from_track_index": {"type": "integer", "minimum": 0},
                 "from_track_name": {"type": "string"},
                 "from_device_index": {"type": "integer", "minimum": 0},
+                "from_chain": {"type": "string", "description": "Source is inside this chain of from_device_index"},
+                "from_chain_device_index": {"type": "integer", "minimum": 0},
                 "to_track_index": {"type": "integer", "minimum": 0},
                 "to_track_name": {"type": "string"},
+                "to_device_index": {"type": "integer", "minimum": 0, "description": "Container device, only with to_chain"},
+                "to_chain": {"type": "string", "description": "Destination chain inside to_device_index"},
                 """ + POSITION_PROPS;
         specs.add(tool("copy_device", "Copy a device (with all its settings) to another position or track.",
             copyProps, "\"from_device_index\"", f, log,
             a -> f.copyOrMoveDevice(a.track("from_track_index", "from_track_name"), a.requiredInt("from_device_index"),
-                a.track("to_track_index", "to_track_name"), a.string("position"), a.integer("after_device_index"), false)));
+                a.string("from_chain"), a.integer("from_chain_device_index"),
+                a.track("to_track_index", "to_track_name"), a.integer("to_device_index"), a.string("to_chain"),
+                a.string("position"), a.integer("after_device_index"), false)));
         specs.add(tool("move_device", "Move a device to another position or track.",
             copyProps, "\"from_device_index\"", f, log,
             a -> f.copyOrMoveDevice(a.track("from_track_index", "from_track_name"), a.requiredInt("from_device_index"),
-                a.track("to_track_index", "to_track_name"), a.string("position"), a.integer("after_device_index"), true)));
+                a.string("from_chain"), a.integer("from_chain_device_index"),
+                a.track("to_track_index", "to_track_name"), a.integer("to_device_index"), a.string("to_chain"),
+                a.string("position"), a.integer("after_device_index"), true)));
 
-        specs.add(tool("delete_device", "Delete a device from a track.", DEVICE_PROPS, "\"device_index\"", f, log,
-            a -> f.deleteDevice(a.track(), a.requiredInt("device_index"))));
+        specs.add(tool("delete_device", "Delete a device from a track, or from a chain inside a device.",
+            DEVICE_PROPS + ",\n" + CHAIN_PROPS, "\"device_index\"", f, log,
+            a -> f.deleteDevice(a.track(), a.requiredInt("device_index"), a.string("chain"), a.integer("chain_device_index"))));
 
-        specs.add(tool("set_device_enabled", "Enable (un-bypass) or bypass a device.",
-            DEVICE_PROPS + ",\n\"enabled\": {\"type\": \"boolean\"}", "\"device_index\", \"enabled\"", f, log,
-            a -> f.setDeviceEnabled(a.track(), a.requiredInt("device_index"), a.requiredBool("enabled"))));
+        specs.add(tool("set_device_enabled", "Enable (un-bypass) or bypass a device, or a device inside a chain.",
+            DEVICE_PROPS + ",\n" + CHAIN_PROPS + ",\n\"enabled\": {\"type\": \"boolean\"}", "\"device_index\", \"enabled\"", f, log,
+            a -> f.setDeviceEnabled(a.track(), a.requiredInt("device_index"), a.string("chain"), a.integer("chain_device_index"),
+                a.requiredBool("enabled"))));
 
         specs.add(tool("set_device_window_open", "Open or close a plugin's editor window.",
             DEVICE_PROPS + ",\n\"open\": {\"type\": \"boolean\"}", "\"device_index\", \"open\"", f, log,
@@ -252,13 +276,14 @@ public class EditTools {
         specs.add(tool("get_device_parameters",
             "Read a device's parameters on any track without changing the user's selection. "
                 + "Returns all remote-control pages, or one page if 'page' is given.",
-            DEVICE_PROPS + ",\n\"page\": {\"type\": \"integer\", \"minimum\": 0}", "\"device_index\"", f, log,
-            a -> f.getDeviceParameters(a.track(), a.requiredInt("device_index"), a.integer("page"))));
+            DEVICE_PROPS + ",\n" + CHAIN_PROPS + ",\n\"page\": {\"type\": \"integer\", \"minimum\": 0}", "\"device_index\"", f, log,
+            a -> f.getDeviceParameters(a.track(), a.requiredInt("device_index"), a.string("chain"),
+                a.integer("chain_device_index"), a.integer("page"))));
 
         specs.add(tool("set_device_parameters",
             "Set parameters on any device by name (case-insensitive, searched across pages) or by page+index. "
                 + "Values are normalized 0-1; the response shows Bitwig's displayed value so you can check units.",
-            DEVICE_PROPS + """
+            DEVICE_PROPS + ",\n" + CHAIN_PROPS + """
                 ,
                 "parameters": {"type": "array", "items": {"type": "object", "properties": {
                     "name": {"type": "string"},
@@ -277,7 +302,8 @@ public class EditTools {
                     }
                     list.add(new BitwigEditFacade.ParamAssignment(pa.integer("page"), pa.integer("index"), pa.string("name"), v));
                 }
-                return f.setDeviceParameters(a.track(), a.requiredInt("device_index"), list);
+                return f.setDeviceParameters(a.track(), a.requiredInt("device_index"), a.string("chain"),
+                    a.integer("chain_device_index"), list);
             }));
 
         // ---- clips and files

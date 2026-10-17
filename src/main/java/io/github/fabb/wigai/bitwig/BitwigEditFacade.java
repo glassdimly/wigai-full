@@ -39,6 +39,8 @@ public class BitwigEditFacade {
         public static final long DEFAULT_TIMEOUT_MS = 2000;
         public static final long SETTLE_MS = 120;
         public static final String DEVICE_LIST_RESOURCE = "/bitwig-devices.txt";
+        public static final int CHAIN_DEVICES = 32;
+        public static final int LAYERS = 16;
 
         private Constants() {}
     }
@@ -51,6 +53,8 @@ public class BitwigEditFacade {
     private final List<DeviceBank> trackDeviceBanks;
     private final CursorTrack editTrack;
     private final PinnableCursorDevice editDevice;
+    private final ChainCursor primary;
+    private final ChainCursor secondary;
     private final CursorRemoteControlsPage editPage;
     private final Clip editClip;
     private final Map<String, UUID> bitwigDevices;
@@ -77,6 +81,9 @@ public class BitwigEditFacade {
             CursorDeviceFollowMode.FIRST_DEVICE);
         this.editPage = editDevice.createCursorRemoteControlsPage(Constants.REMOTE_CONTROL_COUNT);
         this.editClip = editTrack.createLauncherCursorClip(Constants.CLIP_GRID_WIDTH, Constants.CLIP_GRID_HEIGHT);
+        this.primary = new ChainCursor(editDevice);
+        this.secondary = new ChainCursor(editTrack.createCursorDevice("WIGAI_EDIT_DEVICE_2", "WigAI edit device 2", 0,
+            CursorDeviceFollowMode.FIRST_DEVICE));
 
         editTrack.position().markInterested();
         editTrack.name().markInterested();
@@ -508,6 +515,236 @@ public class BitwigEditFacade {
     }
 
     // ========================================
+    // Device chains (slots and layers inside a device)
+    // ========================================
+
+    /**
+     * A cursor device plus views into its nested chains. Slots (e.g. a Vocoder's "Modulator" and
+     * "Carrier", an FX device's "FX") are browsed one at a time through the cursor slot; layers
+     * (FX Layer, Instrument Layer) each get their own device bank.
+     */
+    private static final class ChainCursor {
+        final PinnableCursorDevice device;
+        final DeviceSlot slot;
+        final DeviceBank slotDevices;
+        final DeviceLayerBank layers;
+        final List<DeviceBank> layerDevices = new ArrayList<>();
+
+        ChainCursor(PinnableCursorDevice device) {
+            this.device = device;
+            this.slot = device.getCursorSlot();
+            this.slotDevices = slot.createDeviceBank(Constants.CHAIN_DEVICES);
+            this.layers = device.createLayerBank(Constants.LAYERS);
+            device.exists().markInterested();
+            device.name().markInterested();
+            device.position().markInterested();
+            device.slotNames().markInterested();
+            device.hasSlots().markInterested();
+            device.hasLayers().markInterested();
+            device.hasDrumPads().markInterested();
+            device.isNested().markInterested();
+            slot.name().markInterested();
+            markDevices(slotDevices);
+            for (int i = 0; i < layers.getSizeOfBank(); i++) {
+                DeviceLayer layer = layers.getItemAt(i);
+                layer.exists().markInterested();
+                layer.name().markInterested();
+                DeviceBank bank = layer.createDeviceBank(Constants.CHAIN_DEVICES);
+                markDevices(bank);
+                layerDevices.add(bank);
+            }
+        }
+
+        private static void markDevices(DeviceBank bank) {
+            for (int i = 0; i < bank.getSizeOfBank(); i++) {
+                Device d = bank.getItemAt(i);
+                d.exists().markInterested();
+                d.name().markInterested();
+                d.isEnabled().markInterested();
+                d.deviceType().markInterested();
+            }
+        }
+
+        void selectSlot(String name) {
+            if (slot instanceof CursorDeviceSlot cursorSlot) {
+                cursorSlot.selectSlot(name);
+            }
+        }
+    }
+
+    /** One chain inside a device: its display name, the chain itself (for insertion) and its devices. */
+    private record ChainView(String name, DeviceChain chain, DeviceBank devices) {}
+
+    /** Selects a chain on a cursor that already points at the containing device. */
+    private ChainView selectChain(ChainCursor c, String chain, String operation) throws BitwigApiException {
+        String wanted = chain.trim();
+        if (wanted.toLowerCase(Locale.ROOT).startsWith("layer:")) {
+            String key = wanted.substring("layer:".length()).trim();
+            for (int i = 0; i < c.layers.getSizeOfBank(); i++) {
+                DeviceLayer layer = c.layers.getItemAt(i);
+                if (layer.exists().get() && (key.equals(String.valueOf(i)) || key.equalsIgnoreCase(layer.name().get()))) {
+                    return new ChainView("layer:" + i, layer, c.layerDevices.get(i));
+                }
+            }
+            throw new BitwigApiException(ErrorCode.DEVICE_NOT_FOUND, operation, "No layer '" + key + "' in this device");
+        }
+        String[] names = c.device.slotNames().get();
+        String match = null;
+        for (String n : names) {
+            if (n.equalsIgnoreCase(wanted)) {
+                match = n;
+            }
+        }
+        if (match == null) {
+            throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                "Device has no chain '" + wanted + "'. Chains: " + String.join(", ", names)
+                    + (c.device.hasLayers().get() ? " (and layers: use 'layer:N')" : ""));
+        }
+        String exact = match;
+        c.selectSlot(exact);
+        waitFor(() -> exact.equalsIgnoreCase(c.slot.name().get()));
+        settle();
+        return new ChainView(exact, c.slot, c.slotDevices);
+    }
+
+    private Device chainDevice(ChainView view, int index, String operation) throws BitwigApiException {
+        if (index < 0 || index >= view.devices().getSizeOfBank() || !view.devices().getItemAt(index).exists().get()) {
+            throw new BitwigApiException(ErrorCode.DEVICE_NOT_FOUND, operation,
+                "No device at index " + index + " in chain '" + view.name() + "'");
+        }
+        return view.devices().getItemAt(index);
+    }
+
+    private static int countBank(DeviceBank bank) {
+        int n = 0;
+        for (int i = 0; i < bank.getSizeOfBank(); i++) {
+            if (bank.getItemAt(i).exists().get()) {
+                n = i + 1;
+            }
+        }
+        return n;
+    }
+
+    private static List<Map<String, Object>> summaries(DeviceBank bank) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (int i = 0; i < bank.getSizeOfBank(); i++) {
+            Device d = bank.getItemAt(i);
+            if (!d.exists().get()) {
+                continue;
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("index", i);
+            m.put("name", d.name().get());
+            m.put("enabled", d.isEnabled().get());
+            m.put("type", d.deviceType().get());
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** Lists the chains (slots and layers) inside a device and the devices in each. */
+    public Map<String, Object> getDeviceChains(int trackIndex, int deviceIndex) throws BitwigApiException {
+        final String operation = "getDeviceChains";
+        focusDevice(primary.device, trackIndex, deviceIndex, operation);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("track_index", trackIndex);
+        result.put("device_index", deviceIndex);
+        result.put("device", primary.device.name().get());
+        List<Map<String, Object>> chains = new ArrayList<>();
+        for (String name : primary.device.slotNames().get()) {
+            ChainView v = selectChain(primary, name, operation);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("chain", v.name());
+            m.put("devices", summaries(v.devices()));
+            chains.add(m);
+        }
+        if (primary.device.hasLayers().get()) {
+            for (int i = 0; i < primary.layers.getSizeOfBank(); i++) {
+                DeviceLayer layer = primary.layers.getItemAt(i);
+                if (!layer.exists().get()) {
+                    continue;
+                }
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("chain", "layer:" + i);
+                m.put("layer_name", layer.name().get());
+                m.put("devices", summaries(primary.layerDevices.get(i)));
+                chains.add(m);
+            }
+        }
+        result.put("chains", chains);
+        result.put("has_drum_pads", primary.device.hasDrumPads().get());
+        result.put("slot_switching", primary.slot instanceof CursorDeviceSlot);
+        return result;
+    }
+
+    /**
+     * Points the primary cursor at a device, or at a device inside one of its chains when chain is given.
+     * The remote-control page then shows that device's parameters.
+     */
+    private void focusTarget(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex, String operation)
+            throws BitwigApiException {
+        focusDevice(primary.device, trackIndex, deviceIndex, operation);
+        if (chain == null) {
+            return;
+        }
+        if (chainDeviceIndex == null) {
+            throw new BitwigApiException(ErrorCode.MISSING_REQUIRED_PARAMETER, operation,
+                "chain_device_index is required with chain");
+        }
+        ChainView view = selectChain(primary, chain, operation);
+        Device nested = chainDevice(view, chainDeviceIndex, operation);
+        String expected = nested.name().get();
+        primary.device.selectDevice(nested);
+        if (!waitFor(() -> primary.device.isNested().get() && expected.equals(primary.device.name().get()))) {
+            throw new BitwigApiException(ErrorCode.BITWIG_TIMEOUT, operation,
+                "Could not focus '" + expected + "' in chain '" + view.name() + "'");
+        }
+        settle();
+    }
+
+    /** Resolves a top-level device, or a device inside a chain of it. */
+    private Device resolveTarget(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex, String operation)
+            throws BitwigApiException {
+        if (chain == null) {
+            return resolveDevice(trackIndex, deviceIndex, operation);
+        }
+        if (chainDeviceIndex == null) {
+            throw new BitwigApiException(ErrorCode.MISSING_REQUIRED_PARAMETER, operation,
+                "chain_device_index is required with chain");
+        }
+        focusDevice(primary.device, trackIndex, deviceIndex, operation);
+        return chainDevice(selectChain(primary, chain, operation), chainDeviceIndex, operation);
+    }
+
+    /** Where a device should go: a track's chain, or a chain inside a device (via the given cursor). */
+    private record Destination(InsertionPoint point, DeviceBank devices, String chainName) {}
+
+    private Destination destination(ChainCursor cursor, int trackIndex, Integer deviceIndex, String chain,
+                                    String position, Integer afterIndex, String operation) throws BitwigApiException {
+        if (chain == null) {
+            return new Destination(insertionPoint(trackIndex, position, afterIndex, operation),
+                trackDeviceBanks.get(trackIndex), null);
+        }
+        if (deviceIndex == null) {
+            throw new BitwigApiException(ErrorCode.MISSING_REQUIRED_PARAMETER, operation,
+                "device_index (the device that contains the chain) is required with chain");
+        }
+        focusDevice(cursor.device, trackIndex, deviceIndex, operation);
+        ChainView view = selectChain(cursor, chain, operation);
+        InsertionPoint ip;
+        if (afterIndex != null) {
+            ip = chainDevice(view, afterIndex, operation).afterDeviceInsertionPoint();
+        } else if ("start".equals(position)) {
+            ip = view.chain().startOfDeviceChainInsertionPoint();
+        } else if (position == null || "end".equals(position)) {
+            ip = view.chain().endOfDeviceChainInsertionPoint();
+        } else {
+            throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation, "position must be 'start' or 'end'");
+        }
+        return new Destination(ip, view.devices(), view.name());
+    }
+
+    // ========================================
     // Devices
     // ========================================
 
@@ -532,9 +769,16 @@ public class BitwigEditFacade {
 
     public Map<String, Object> insertDevice(int trackIndex, String bitwigDevice, String clapId, String vst3Id,
                                             String position, Integer afterDeviceIndex) throws BitwigApiException {
+        return insertDevice(trackIndex, null, null, bitwigDevice, clapId, vst3Id, position, afterDeviceIndex);
+    }
+
+    public Map<String, Object> insertDevice(int trackIndex, Integer deviceIndex, String chain, String bitwigDevice,
+                                            String clapId, String vst3Id, String position, Integer afterDeviceIndex)
+            throws BitwigApiException {
         final String operation = "insertDevice";
-        InsertionPoint ip = insertionPoint(trackIndex, position, afterDeviceIndex, operation);
-        int before = countDevices(trackIndex);
+        Destination dest = destination(primary, trackIndex, deviceIndex, chain, position, afterDeviceIndex, operation);
+        InsertionPoint ip = dest.point();
+        int before = countBank(dest.devices());
         if (bitwigDevice != null) {
             UUID id = findBitwigDevice(bitwigDevice);
             if (id == null) {
@@ -550,10 +794,13 @@ public class BitwigEditFacade {
             throw new BitwigApiException(ErrorCode.MISSING_REQUIRED_PARAMETER, operation,
                 "Provide bitwig_device, clap_id or vst3_id");
         }
-        boolean added = waitFor(() -> countDevices(trackIndex) > before);
+        boolean added = waitFor(() -> countBank(dest.devices()) > before);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("inserted", added);
-        result.put("devices", deviceSummaries(trackIndex));
+        if (dest.chainName() != null) {
+            result.put("chain", dest.chainName());
+        }
+        result.put("devices", dest.chainName() != null ? summaries(dest.devices()) : deviceSummaries(trackIndex));
         return result;
     }
 
@@ -568,39 +815,79 @@ public class BitwigEditFacade {
 
     public Map<String, Object> copyOrMoveDevice(int fromTrack, int fromDevice, int toTrack, String position,
                                                 Integer afterDeviceIndex, boolean move) throws BitwigApiException {
+        return copyOrMoveDevice(fromTrack, fromDevice, null, null, toTrack, null, null, position, afterDeviceIndex, move);
+    }
+
+    /**
+     * Copies or moves a device. Source and destination can each be a track's chain or a chain inside a
+     * device; two independent cursors are used so both can point into chains of the same device.
+     */
+    public Map<String, Object> copyOrMoveDevice(int fromTrack, int fromDevice, String fromChain,
+                                                Integer fromChainDeviceIndex, int toTrack, Integer toDevice,
+                                                String toChain, String position, Integer afterDeviceIndex,
+                                                boolean move) throws BitwigApiException {
         final String operation = move ? "moveDevice" : "copyDevice";
-        Device source = resolveDevice(fromTrack, fromDevice, operation);
-        InsertionPoint ip = insertionPoint(toTrack, position, afterDeviceIndex, operation);
-        int before = countDevices(toTrack);
+        Device source = resolveTarget(fromTrack, fromDevice, fromChain, fromChainDeviceIndex, operation);
+        Destination dest = destination(secondary, toTrack, toDevice, toChain, position, afterDeviceIndex, operation);
+        int before = countBank(dest.devices());
         if (move) {
-            ip.moveDevices(source);
+            dest.point().moveDevices(source);
         } else {
-            ip.copyDevices(source);
+            dest.point().copyDevices(source);
         }
-        if (fromTrack != toTrack) {
-            waitFor(() -> countDevices(toTrack) > before);
-        } else {
+        if (!waitFor(() -> countBank(dest.devices()) > before)) {
             settle();
         }
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("target_track_devices", deviceSummaries(toTrack));
+        if (dest.chainName() != null) {
+            result.put("target_chain", dest.chainName());
+            result.put("target_chain_devices", summaries(dest.devices()));
+        } else {
+            result.put("target_track_devices", deviceSummaries(toTrack));
+        }
         return result;
     }
 
     public Map<String, Object> deleteDevice(int trackIndex, int deviceIndex) throws BitwigApiException {
-        Device device = resolveDevice(trackIndex, deviceIndex, "deleteDevice");
+        return deleteDevice(trackIndex, deviceIndex, null, null);
+    }
+
+    public Map<String, Object> deleteDevice(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex)
+            throws BitwigApiException {
+        final String operation = "deleteDevice";
+        Device device = resolveTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
         String name = device.name().get();
-        int before = countDevices(trackIndex);
+        DeviceBank bank = chain == null ? trackDeviceBanks.get(trackIndex)
+            : (chain.toLowerCase(Locale.ROOT).startsWith("layer:")
+                ? primary.layerDevices.get(layerIndexOf(device)) : primary.slotDevices);
+        int before = countBank(bank);
         device.deleteObject();
-        waitFor(() -> countDevices(trackIndex) < before);
+        waitFor(() -> countBank(bank) < before);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("deleted_device", name);
-        result.put("devices", deviceSummaries(trackIndex));
+        result.put("devices", chain == null ? deviceSummaries(trackIndex) : summaries(bank));
         return result;
     }
 
+    private int layerIndexOf(Device device) {
+        for (int i = 0; i < primary.layerDevices.size(); i++) {
+            DeviceBank bank = primary.layerDevices.get(i);
+            for (int d = 0; d < bank.getSizeOfBank(); d++) {
+                if (bank.getItemAt(d) == device) {
+                    return i;
+                }
+            }
+        }
+        return 0;
+    }
+
     public Map<String, Object> setDeviceEnabled(int trackIndex, int deviceIndex, boolean enabled) throws BitwigApiException {
-        Device device = resolveDevice(trackIndex, deviceIndex, "setDeviceEnabled");
+        return setDeviceEnabled(trackIndex, deviceIndex, null, null, enabled);
+    }
+
+    public Map<String, Object> setDeviceEnabled(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
+                                                boolean enabled) throws BitwigApiException {
+        Device device = resolveTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, "setDeviceEnabled");
         device.isEnabled().set(enabled);
         waitFor(() -> device.isEnabled().get() == enabled);
         return Map.of("device", device.name().get(), "enabled", device.isEnabled().get());
@@ -613,16 +900,18 @@ public class BitwigEditFacade {
     }
 
     /** Points the private edit cursor at a device without touching the user's selection. */
-    private void focusDevice(int trackIndex, int deviceIndex, String operation) throws BitwigApiException {
+    private void focusDevice(PinnableCursorDevice cursor, int trackIndex, int deviceIndex, String operation)
+            throws BitwigApiException {
         Track track = trackBank.getItemAt(trackIndex);
         Device device = resolveDevice(trackIndex, deviceIndex, operation);
         String expectedName = device.name().get();
         editTrack.selectChannel(track);
         waitFor(() -> track.name().get().equals(editTrack.name().get()));
-        editDevice.selectDevice(device);
-        boolean ok = waitFor(() -> editDevice.exists().get()
-            && editDevice.position().get() == deviceIndex
-            && expectedName.equals(editDevice.name().get()));
+        cursor.selectDevice(device);
+        boolean ok = waitFor(() -> cursor.exists().get()
+            && !cursor.isNested().get()
+            && cursor.position().get() == deviceIndex
+            && expectedName.equals(cursor.name().get()));
         if (!ok) {
             throw new BitwigApiException(ErrorCode.BITWIG_TIMEOUT, operation,
                 "Could not focus device " + deviceIndex + " on track " + trackIndex);
@@ -659,12 +948,21 @@ public class BitwigEditFacade {
 
     /** Reads one page, or every page when page is null. */
     public Map<String, Object> getDeviceParameters(int trackIndex, int deviceIndex, Integer page) throws BitwigApiException {
+        return getDeviceParameters(trackIndex, deviceIndex, null, null, page);
+    }
+
+    public Map<String, Object> getDeviceParameters(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
+                                                   Integer page) throws BitwigApiException {
         final String operation = "getDeviceParameters";
-        focusDevice(trackIndex, deviceIndex, operation);
+        focusTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
         String[] pageNames = editPage.pageNames().get();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("track_index", trackIndex);
         result.put("device_index", deviceIndex);
+        if (chain != null) {
+            result.put("chain", chain);
+            result.put("chain_device_index", chainDeviceIndex);
+        }
         result.put("device", editDevice.name().get());
         result.put("page_names", pageNames);
         List<Map<String, Object>> pages = new ArrayList<>();
@@ -692,8 +990,13 @@ public class BitwigEditFacade {
 
     public Map<String, Object> setDeviceParameters(int trackIndex, int deviceIndex, List<ParamAssignment> assignments)
             throws BitwigApiException {
+        return setDeviceParameters(trackIndex, deviceIndex, null, null, assignments);
+    }
+
+    public Map<String, Object> setDeviceParameters(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
+                                                   List<ParamAssignment> assignments) throws BitwigApiException {
         final String operation = "setDeviceParameters";
-        focusDevice(trackIndex, deviceIndex, operation);
+        focusTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
         String[] pageNames = editPage.pageNames().get();
         int pageCount = Math.max(1, pageNames.length);
         List<Map<String, Object>> results = new ArrayList<>();
