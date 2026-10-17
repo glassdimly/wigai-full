@@ -827,7 +827,17 @@ public class BitwigEditFacade {
                                                 String toChain, String position, Integer afterDeviceIndex,
                                                 boolean move) throws BitwigApiException {
         final String operation = move ? "moveDevice" : "copyDevice";
-        Device source = resolveTarget(fromTrack, fromDevice, fromChain, fromChainDeviceIndex, operation);
+        // A chain source is held by the primary cursor itself, not by a slot-bank entry: the selected slot
+        // belongs to the device, so pointing the second cursor at another slot of the same device would
+        // repoint a bank entry to a different device.
+        Device source;
+        if (fromChain != null) {
+            focusTarget(fromTrack, fromDevice, fromChain, fromChainDeviceIndex, operation);
+            source = primary.device;
+        } else {
+            source = resolveDevice(fromTrack, fromDevice, operation);
+        }
+        String sourceName = source.name().get();
         Destination dest = destination(secondary, toTrack, toDevice, toChain, position, afterDeviceIndex, operation);
         int before = countBank(dest.devices());
         if (move) {
@@ -839,6 +849,7 @@ public class BitwigEditFacade {
             settle();
         }
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("device", sourceName);
         if (dest.chainName() != null) {
             result.put("target_chain", dest.chainName());
             result.put("target_chain_devices", summaries(dest.devices()));
