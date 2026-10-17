@@ -271,6 +271,7 @@ class BitwigEditFacadeBehaviourTest {
         verify(ip).insertFile(midi.toString());
         assertEquals(true, r.get("inserted"));
         assertThrows(BitwigApiException.class, () -> facade.insertFile(0, 99, midi.toString()));
+        assertNull(r.get("new_tracks_created"));
     }
 
     @Test
