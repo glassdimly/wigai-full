@@ -111,6 +111,7 @@ Communication is message-based, typically using JSON-RPC or a similar structured
     - All actions and responses are logged via the Logger service.
 
 #### `project_getName`
+*   **Not implemented as a separate tool**: the project name is returned by `status` (`project_name`). Kept here for history.
 *   **Description**: Get the name of the current Bitwig Studio project.
 *   **Parameters**: None
 *   **Returns**:
@@ -720,6 +721,235 @@ Rules:
   - `DEVICE_NOT_FOUND`
   - `DEVICE_NOT_SELECTED`
   - `BITWIG_API_ERROR`
+
+### Project Editing Commands
+
+Tools from [Epic 9](./prd/epic-9.md). Shared rules:
+
+*   **Track targeting:** `track_index` (0-based, as in `list_tracks`) or `track_name` (exact, case-sensitive). Device-scoped tools add `device_index` (as in `list_devices_on_track`).
+*   **Asynchrony:** mutating tools wait (up to 2 s) until Bitwig shows the change, then return the resulting state. A change that never appears returns `BITWIG_TIMEOUT`.
+*   **Common errors:** `TRACK_NOT_FOUND`, `DEVICE_NOT_FOUND`, `MISSING_REQUIRED_PARAMETER`, `INVALID_PARAMETER` (bad argument type or value), `INVALID_RANGE`, `BITWIG_TIMEOUT`, `OPERATION_FAILED`.
+
+#### `create_track`
+*   **Description**: Create an audio, instrument or effect track.
+*   **Parameters**:
+    ```json
+    {
+      "type": "instrument",   // required: "audio" | "instrument" | "effect"
+      "position": 3,          // optional: index among regular tracks (or among effect tracks for "effect"); default end
+      "name": "Vocoder Chords" // optional
+    }
+    ```
+*   **Returns**:
+    ```json
+    { "status": "success", "data": { "type": "instrument", "track_index": 3, "name": "Vocoder Chords" } }
+    ```
+*   **Notes**: The new track's type is checked before it is renamed; if it cannot be located, `OPERATION_FAILED` is returned and nothing is renamed.
+
+#### `delete_track`
+*   **Parameters**: track targeting.
+*   **Returns**: `{ "deleted_track": "Audio 2", "track_index": 1 }`
+*   **Errors**: `INVALID_PARAMETER` for the master track.
+
+#### `duplicate_track`
+*   **Parameters**: track targeting.
+*   **Returns**: `{ "duplicated_track": "Lead", "new_track_index": 2 }`
+*   **Errors**: `INVALID_PARAMETER` for the master track.
+
+#### `get_track_mixer`
+*   **Parameters**: track targeting.
+*   **Returns** (the same object is returned by `set_track` and `set_send`):
+    ```json
+    {
+      "status": "success",
+      "data": {
+        "track_index": 1,
+        "name": "Lead Vox",
+        "volume": 0.5407,           // normalized fader position
+        "volume_display": "-10.0 dB",
+        "pan": 0.0,                 // -1 (left) .. 1 (right)
+        "pan_display": "0.00 %",
+        "mute": false,
+        "solo": false,
+        "arm": false,
+        "activated": true,
+        "monitor_mode": "AUTO",
+        "is_master": false,
+        "sends": [ { "index": 0, "name": "FX 1", "value": 0.0, "display": "-Inf dB", "enabled": false } ]
+      }
+    }
+    ```
+
+#### `set_track`
+*   **Description**: Change track settings; only given fields change.
+*   **Parameters**:
+    ```json
+    {
+      "track_name": "Lead Vox",
+      "name": "Lead",          // optional
+      "volume": 0.7,           // optional: normalized 0..1
+      "volume_db": -3.0,       // optional: matched against Bitwig's dB display (max 6)
+      "pan": -0.25,            // optional: -1..1
+      "mute": false, "solo": false, "arm": true, "activated": true, // optional
+      "monitor_mode": "AUTO",  // optional: "ON" | "OFF" | "AUTO"
+      "color": "#3366CC"       // optional
+    }
+    ```
+*   **Notes**: `volume_db` binary-searches the fader against the displayed value and keeps the closest position; the display is rounded to 0.1 dB.
+
+#### `set_send`
+*   **Parameters**: track targeting, `send_index` (required), `value` (0..1, optional), `enabled` (optional).
+*   **Errors**: `INVALID_RANGE` if the send does not exist; `RESOURCE_UNAVAILABLE` if the track has no sends.
+
+#### `list_bitwig_devices`
+*   **Description**: Names of Bitwig's built-in devices accepted by `insert_device`.
+*   **Returns**: `["Amp", "Audio Receiver", ..., "EQ+", ..., "Vocoder", ...]`
+
+#### `insert_device`
+*   **Parameters**:
+    ```json
+    {
+      "track_name": "Lead",
+      "bitwig_device": "EQ+",        // one of: bitwig_device (case-insensitive name),
+      "clap_id": null,               //         clap_id (e.g. "org.surge-synth-team.surge-xt"),
+      "vst3_id": null,               //         vst3_id (VST3 class id)
+      "position": "end",             // optional: "start" | "end" (default "end")
+      "after_device_index": 0        // optional: insert after this device instead
+    }
+    ```
+*   **Returns**:
+    ```json
+    { "status": "success", "data": { "inserted": true, "devices": [ { "index": 0, "name": "Compressor", "enabled": true }, { "index": 1, "name": "EQ+", "enabled": true } ] } }
+    ```
+*   **Errors**: `DEVICE_NOT_FOUND` (unknown built-in name), `MISSING_REQUIRED_PARAMETER` (no id given).
+
+#### `copy_device` / `move_device`
+*   **Parameters**:
+    ```json
+    {
+      "from_track_name": "Lead", "from_device_index": 1,  // or from_track_index
+      "to_track_name": "Backing",                         // or to_track_index
+      "position": "end",                                  // optional, or after_device_index
+      "after_device_index": null
+    }
+    ```
+*   **Returns**: `{ "target_track_devices": [ { "index": 0, "name": "EQ+", "enabled": true } ] }`
+*   **Notes**: Copies keep all device settings.
+
+#### `delete_device`
+*   **Parameters**: track targeting, `device_index`.
+*   **Returns**: `{ "deleted_device": "Reverb", "devices": [ ... ] }`
+
+#### `set_device_enabled`
+*   **Parameters**: track targeting, `device_index`, `enabled` (`false` = bypassed).
+*   **Returns**: `{ "device": "Vocoder", "enabled": true }`
+
+#### `set_device_window_open`
+*   **Parameters**: track targeting, `device_index`, `open`.
+*   **Returns**: `{ "device": "Surge XT", "window_open": true }`
+
+#### `get_device_parameters`
+*   **Description**: Read the remote-control parameters of any device without changing the user's selection.
+*   **Parameters**: track targeting, `device_index`, `page` (optional; default all pages).
+*   **Returns**:
+    ```json
+    {
+      "status": "success",
+      "data": {
+        "track_index": 2,
+        "device_index": 0,
+        "device": "Reverb",
+        "page_names": ["Main", "Tone", "Common"],
+        "pages": [
+          {
+            "page": 0,
+            "page_name": "Main",
+            "parameters": [
+              { "index": 0, "name": "Size", "value": 0.495, "display": "99.3 %" },
+              { "index": 1, "name": "Pre-delay", "value": 0.04, "display": "4.00 ms" }
+            ]
+          }
+        ]
+      }
+    }
+    ```
+
+#### `set_device_parameters`
+*   **Description**: Set parameters on any device by name or by page+index. Values are normalized; check `display` for units.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 2,
+      "device_index": 0,
+      "parameters": [
+        { "name": "Mix", "value": 0.35 },          // name: case-insensitive, searched across pages
+        { "page": 0, "index": 1, "value": 0.9 }    // or page + index (0..7)
+      ]
+    }
+    ```
+*   **Returns**:
+    ```json
+    {
+      "status": "success",
+      "data": {
+        "device": "Reverb",
+        "results": [
+          { "request": "Mix", "applied": true, "status": "success", "page": 0, "name": "Mix", "value": 0.35, "display": "35.0 %" },
+          { "request": "page 9 index 0", "status": "error", "message": "Parameter not found" }
+        ]
+      }
+    }
+    ```
+*   **Notes**: Each item succeeds or fails on its own. `applied` is `false` if Bitwig did not report the new value within the timeout.
+
+#### `insert_file`
+*   **Parameters**: track targeting, `path` (absolute, required), `slot_index` (optional).
+*   **Returns**: with `slot_index`: `{ "track_index": 0, "slot_index": 1, "inserted": true }`; without: `{ "new_track_index": 1, "inserted": true }` (Bitwig inserts the file as a new track after the given one).
+*   **Errors**: `INVALID_PARAMETER` if the file does not exist.
+*   **Notes**: The Controller API cannot place clips on the arranger timeline.
+
+#### `create_clip`
+*   **Parameters**: track targeting, `slot_index`, `length_beats` (integer ≥ 1).
+*   **Returns**: `{ "track_index": 0, "slot_index": 0, "length_beats": 4, "created": true }`
+*   **Errors**: `INVALID_PARAMETER` if the slot already holds a clip.
+
+#### `delete_clip`
+*   **Parameters**: track targeting, `slot_index`.
+*   **Returns**: `{ "track_index": 0, "slot_index": 0, "deleted": true }`
+
+#### `write_notes`
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,
+      "slot_index": 0,
+      "clear_first": true,   // optional, default false
+      "notes": [
+        { "start": 0, "pitch": 60, "velocity": 100, "duration": 1.0 },  // beats from clip start; velocity optional (100)
+        { "start": 1.5, "pitch": 64, "duration": 0.5 }
+      ]
+    }
+    ```
+*   **Returns**: `{ "track_index": 0, "slot_index": 0, "notes_written": 2 }`
+*   **Errors**: `CLIP_NOT_FOUND` if the slot is empty.
+*   **Notes**: Start times snap to a 1/64-beat grid.
+
+#### `set_transport`
+*   **Parameters** (all optional): `tempo_bpm`, `position_beats`, `loop`, `metronome`, `record`, `overdub`.
+*   **Returns**: `{ "tempo": "110.00 BPM", "position_beats": 0.0, "loop": false, "metronome": false, "record": false, "overdub": true }`
+
+#### `list_actions`
+*   **Parameters**: `filter` (optional, case-insensitive substring of id, name or category).
+*   **Returns**: `[ { "id": "toggle_metronome", "name": "Toggle Metronome", "category": "Project" } ]`
+
+#### `invoke_action`
+*   **Parameters**: `id` (required, from `list_actions`).
+*   **Returns**: `{ "invoked": "toggle_metronome", "name": "Toggle Metronome" }`
+*   **Errors**: `INVALID_PARAMETER` for an unknown id.
+
+#### `undo` / `redo`
+*   **Parameters**: none.
+*   **Returns**: `{ "action": "undo" }`
 
 ### Error Handling
 

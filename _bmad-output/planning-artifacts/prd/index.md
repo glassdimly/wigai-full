@@ -169,6 +169,9 @@ Validating WigAI's functionality will involve several layers:
 -   **[Epic 8: Device Information Retrieval](./epic-8.md)**
     * **Goal:** Provide MCP tools to list devices on a specific track and retrieve detailed information including remote controls and remote control pages for a specific device.
 
+-   **[Epic 9: Project Editing](./epic-9.md)**
+    * **Goal:** Provide MCP tools to create and configure tracks, build device chains, set parameters on any device, create clips and write notes, adjust transport settings and run Bitwig application actions.
+
 ## Key Reference Documents
 
 -   `docs/project-brief.md`

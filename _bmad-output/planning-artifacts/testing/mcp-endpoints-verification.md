@@ -164,7 +164,18 @@ Expected response format:
    - `name`: Should exactly match scene names as displayed in Bitwig
    - `color`: Should be `rgb(r,g,b)` format or `null` for scenes without colors
 
-### 5. Check Log Messages
+### 5. Automated Live Test (Epic 9 editing tools)
+
+`scripts/live_test.py` runs the editing tools end to end against a running Bitwig:
+
+```bash
+python3 scripts/live_test.py            # default URL http://localhost:61169/mcp
+python3 scripts/live_test.py --keep     # leave the test tracks for inspection
+```
+
+It creates its own tracks, exercises tracks/mixer, devices, parameters, clips, notes, file import and actions, then deletes them and checks the track count is restored. **Open an empty project first**: the script refuses to run when the project has more than 2 regular tracks (`--force` overrides). It prints one line per check and exits non-zero on any failure.
+
+### 6. Check Log Messages
 
 After running these tests, check the Bitwig extension console to verify that appropriate log messages are being generated for each request and response.
 
