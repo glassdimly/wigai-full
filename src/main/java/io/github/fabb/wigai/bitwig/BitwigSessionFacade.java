@@ -142,6 +142,24 @@ public class BitwigSessionFacade {
     }
 
     // ========================================
+    // Audio engine
+    // ========================================
+
+    /**
+     * Bitwig runs the audio engine for one open project at a time; a project without it cannot play,
+     * meter or audition. Activating it here takes it from whichever project had it.
+     */
+    public Map<String, Object> setEngineActive(Application application, boolean active) {
+        if (active) {
+            application.activateEngine();
+        } else {
+            application.deactivateEngine();
+        }
+        waitFor(() -> application.hasActiveEngine().get() == active);
+        return Map.of("engine_active", application.hasActiveEngine().get());
+    }
+
+    // ========================================
     // Levels
     // ========================================
 
@@ -288,9 +306,10 @@ public class BitwigSessionFacade {
         if (!slot.hasContent().get()) {
             throw new BitwigApiException(ErrorCode.CLIP_NOT_FOUND, operation, "Slot " + slotIndex + " is empty");
         }
+        // The note map is kept current by the step observer, which reports every cell that changes as
+        // the cursor clip moves; clearing it here would drop notes delivered by selectChannel already.
         clipTrack.selectChannel(track);
         waitFor(() -> track.name().get().equals(clipTrack.name().get()));
-        steps.clear();
         slot.select();
         if (!waitFor(() -> clip.exists().get())) {
             throw new BitwigApiException(ErrorCode.BITWIG_TIMEOUT, operation, "Could not focus the clip");

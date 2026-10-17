@@ -1205,6 +1205,10 @@ public class BitwigEditFacade {
     // Application actions
     // ========================================
 
+    public Application application() {
+        return application;
+    }
+
     public List<Map<String, Object>> listActions(String filter) {
         List<Map<String, Object>> out = new ArrayList<>();
         String f = filter == null ? null : filter.toLowerCase(Locale.ROOT);
