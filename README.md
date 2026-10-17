@@ -1,3 +1,14 @@
+# wigai-full: WigAI with full project editing
+
+> **This is a fork of [fabb/WigAI](https://github.com/fabb/WigAI).** We would much rather have these features in WigAI itself and delete this fork. They have been offered upstream:
+>
+> - [fabb/WigAI#21](https://github.com/fabb/WigAI/pull/21): project editing tools (tracks, mixer, devices, parameters of any device, clips and notes, transport, actions)
+> - [fabb/WigAI#19](https://github.com/fabb/WigAI/pull/19): `next_project` / `previous_project`, by [@0reo](https://github.com/0reo)
+>
+> Until they are merged, this repo carries both, and its releases contain the combined extension. It is a drop-in replacement: same extension ID, name and MCP port as WigAI, so Bitwig treats it as the same controller.
+
+Original README follows.
+
 # WigAI - Bitwig Studio Extension for AI Control
 
 WigAI is a Model Context Protocol (MCP) server implemented as a Bitwig Studio extension. It provides an interface for external AI assistants to control Bitwig Studio through simple text-based commands.
