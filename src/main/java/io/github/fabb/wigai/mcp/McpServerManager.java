@@ -3,6 +3,7 @@ package io.github.fabb.wigai.mcp;
 import io.github.fabb.wigai.WigAIExtensionDefinition;
 import io.github.fabb.wigai.bitwig.BitwigApiFacade;
 import io.github.fabb.wigai.bitwig.BitwigEditFacade;
+import io.github.fabb.wigai.bitwig.BitwigSessionFacade;
 import io.github.fabb.wigai.common.Logger;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.config.ConfigManager;
@@ -58,6 +59,7 @@ public class McpServerManager {
     private DeviceController deviceController;
     private ClipSceneController clipSceneController;
     private BitwigEditFacade bitwigEditFacade;
+    private BitwigSessionFacade bitwigSessionFacade;
 
     /**
      * Creates a new McpServerManager instance.
@@ -132,6 +134,8 @@ public class McpServerManager {
             clipSceneController = new ClipSceneController(bitwigApiFacade, logger);
             bitwigEditFacade = new BitwigEditFacade(getHost(), logger, bitwigApiFacade.getApplication(),
                 bitwigApiFacade.getTransport(), bitwigApiFacade.getTrackBank(), bitwigApiFacade.getTrackDeviceBanks());
+            bitwigSessionFacade = new BitwigSessionFacade(getHost(), logger, bitwigApiFacade.getTransport(),
+                bitwigApiFacade.getTrackBank());
         } else {
             logger.info("McpServerManager: Reusing existing Bitwig API controllers");
         }
@@ -157,6 +161,7 @@ public class McpServerManager {
             GetClipsInSceneTool.getClipsInSceneSpecification(clipSceneController, structuredLogger)
         ));
         tools.addAll(EditTools.specifications(bitwigEditFacade, structuredLogger));
+        tools.addAll(EditTools.sessionSpecifications(bitwigEditFacade, bitwigSessionFacade, structuredLogger));
 
         McpServer.sync(this.transportProvider)
             .serverInfo("WigAI", extensionDefinition.getVersion())
