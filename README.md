@@ -17,6 +17,7 @@ The extension enables external AI agents (e.g., IDE-based copilots, standalone A
 -   Parameters of any device on any track, by name or page, without moving the user's selection
 -   Clips: import audio/MIDI files into launcher slots, create clips, write MIDI notes
 -   Tempo, loop, metronome, record; run any Bitwig menu action; undo/redo
+-   Switching between open projects
 
 ## Requirements
 

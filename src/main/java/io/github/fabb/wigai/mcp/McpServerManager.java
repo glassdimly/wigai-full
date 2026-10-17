@@ -9,12 +9,14 @@ import io.github.fabb.wigai.config.ConfigManager;
 import io.github.fabb.wigai.features.TransportController;
 import io.github.fabb.wigai.features.DeviceController;
 import io.github.fabb.wigai.features.ClipSceneController;
+import io.github.fabb.wigai.features.ProjectController;
 import io.modelcontextprotocol.server.*;
 import io.modelcontextprotocol.server.transport.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.eclipse.jetty.servlet.ServletHolder;
 import io.github.fabb.wigai.mcp.tool.StatusTool;
 import io.github.fabb.wigai.mcp.tool.TransportTool;
+import io.github.fabb.wigai.mcp.tool.ProjectTool;
 import io.github.fabb.wigai.mcp.tool.DeviceParamTool;
 import io.github.fabb.wigai.mcp.tool.ClipTool;
 import io.github.fabb.wigai.mcp.tool.SceneTool;
@@ -58,6 +60,7 @@ public class McpServerManager {
     private DeviceController deviceController;
     private ClipSceneController clipSceneController;
     private BitwigEditFacade bitwigEditFacade;
+    private ProjectController projectController;
 
     /**
      * Creates a new McpServerManager instance.
@@ -132,6 +135,7 @@ public class McpServerManager {
             clipSceneController = new ClipSceneController(bitwigApiFacade, logger);
             bitwigEditFacade = new BitwigEditFacade(getHost(), logger, bitwigApiFacade.getApplication(),
                 bitwigApiFacade.getTransport(), bitwigApiFacade.getTrackBank(), bitwigApiFacade.getTrackDeviceBanks());
+            projectController = new ProjectController(bitwigApiFacade, logger);
         } else {
             logger.info("McpServerManager: Reusing existing Bitwig API controllers");
         }
@@ -143,6 +147,8 @@ public class McpServerManager {
             StatusTool.specification(this.extensionDefinition, bitwigApiFacade, structuredLogger),
             TransportTool.transportStartSpecification(transportController, structuredLogger),
             TransportTool.transportStopSpecification(transportController, structuredLogger),
+            ProjectTool.nextProjectSpecification(projectController, structuredLogger),
+            ProjectTool.previousProjectSpecification(projectController, structuredLogger),
             ClipTool.launchClipSpecification(clipSceneController, structuredLogger),
             SceneTool.launchSceneByIndexSpecification(clipSceneController, structuredLogger),
             SceneByNameTool.launchSceneByNameSpecification(clipSceneController, structuredLogger),
