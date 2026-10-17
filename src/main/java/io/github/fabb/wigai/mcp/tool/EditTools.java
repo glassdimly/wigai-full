@@ -212,8 +212,10 @@ public class EditTools {
             a -> f.setSend(a.track(), a.requiredInt("send_index"), a.number("value"), a.bool("enabled"))));
 
         // ---- devices
-        specs.add(tool("list_bitwig_devices", "List Bitwig's built-in device names usable with insert_device.",
-            "", null, f, log, a -> f.listBitwigDeviceNames()));
+        specs.add(tool("list_bitwig_devices",
+            "List Bitwig's built-in devices usable with insert_device, with type (instrument, audio effect, "
+                + "note effect) and category. Optional filter matches name, type or category.",
+            "\"filter\": {\"type\": \"string\"}", null, f, log, a -> f.listBitwigDevices(a.string("filter"))));
 
         specs.add(tool("insert_device",
             "Insert a device on a track: a Bitwig built-in by name (e.g. 'EQ+', 'Audio Receiver', 'Reverb'), "

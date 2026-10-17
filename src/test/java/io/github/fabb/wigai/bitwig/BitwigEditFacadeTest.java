@@ -72,7 +72,29 @@ class BitwigEditFacadeTest {
         assertNotNull(facade.findBitwigDevice("Vocoder"));
         assertNotNull(facade.findBitwigDevice("Reverb"));
         assertNull(facade.findBitwigDevice("Not A Device"));
-        assertTrue(facade.listBitwigDeviceNames().size() > 50);
+        assertTrue(facade.listBitwigDeviceNames().size() > 100);
+    }
+
+    @Test
+    void readsDeviceMetadataFromBitwigPresetHeaders(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+        b.write("BtWg0003meta".getBytes());
+        for (String[] kv : new String[][]{{"device_id", "01af068e-1e49-4777-a6e6-7f1dc679227a"},
+                {"device_name", "EQ-2"}, {"device_type", "audio_to_audio"}, {"device_category", "EQ"}}) {
+            b.write(new byte[]{0, 0, 0, (byte) kv[0].length()});
+            b.write(kv[0].getBytes());
+            b.write(new byte[]{8, 0, 0, 0, (byte) kv[1].length()});
+            b.write(kv[1].getBytes());
+            b.write(new byte[]{0, 0, 0, 1});
+        }
+        java.nio.file.Path d = java.nio.file.Files.createDirectories(dir.resolve("01af068e-1e49-4777-a6e6-7f1dc679227a"));
+        java.nio.file.Files.write(d.resolve("Default.bwpreset"), b.toByteArray());
+        Map<String, BitwigEditFacade.BitwigDevice> lib = BitwigEditFacade.readLibrary(dir);
+        BitwigEditFacade.BitwigDevice eq = lib.get("EQ-2");
+        assertEquals(UUID.fromString("01af068e-1e49-4777-a6e6-7f1dc679227a"), eq.id());
+        assertEquals("audio effect", eq.type());
+        assertEquals("EQ", eq.category());
+        assertTrue(BitwigEditFacade.readLibrary(dir.resolve("missing")).isEmpty());
     }
 
     @Test
