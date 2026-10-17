@@ -17,8 +17,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -114,6 +112,15 @@ public class BitwigEditFacade {
             track.pan().value().markInterested();
             track.pan().displayedValue().markInterested();
             track.monitorMode().markInterested();
+            SendBank sends = sendBankOrNull(track);
+            for (int i = 0; sends != null && i < sends.getSizeOfBank(); i++) {
+                Send send = sends.getItemAt(i);
+                send.exists().markInterested();
+                send.name().markInterested();
+                send.value().markInterested();
+                send.displayedValue().markInterested();
+                send.isEnabled().markInterested();
+            }
             ClipLauncherSlotBank slots = track.clipLauncherSlotBank();
             for (int s = 0; s < slots.getSizeOfBank(); s++) {
                 slots.getItemAt(s).hasContent().markInterested();
@@ -169,13 +176,24 @@ public class BitwigEditFacade {
         return bank.getItemAt(deviceIndex);
     }
 
-    /** Number of tracks in the flat track list, not counting the master track (which Bitwig lists last). */
+    /**
+     * Number of regular tracks. The flat track list holds regular tracks first, then effect tracks,
+     * then the master track; only regular tracks can be inserted between.
+     */
     public int countTracks() {
+        return countTracksOfKind(false);
+    }
+
+    public int countEffectTracks() {
+        return countTracksOfKind(true);
+    }
+
+    private int countTracksOfKind(boolean effect) {
         int n = 0;
         for (int i = 0; i < trackBank.getSizeOfBank(); i++) {
             Track t = trackBank.getItemAt(i);
-            if (t.exists().get() && !isMaster(t)) {
-                n = i + 1;
+            if (t.exists().get() && !isMaster(t) && isEffect(t) == effect) {
+                n++;
             }
         }
         return n;
@@ -183,6 +201,10 @@ public class BitwigEditFacade {
 
     static boolean isMaster(Track track) {
         return "Master".equalsIgnoreCase(track.trackType().get());
+    }
+
+    static boolean isEffect(Track track) {
+        return "Effect".equalsIgnoreCase(track.trackType().get());
     }
 
     public int countDevices(int trackIndex) {
@@ -211,30 +233,6 @@ public class BitwigEditFacade {
             out.add(m);
         }
         return out;
-    }
-
-    /**
-     * Runs a change on Bitwig's control thread and waits for it to have run. Some setters (notably
-     * remote-control values) are dropped when called from the MCP request thread.
-     */
-    void onHost(Runnable change) {
-        if (timeoutMs <= 0) {
-            change.run();
-            return;
-        }
-        CountDownLatch done = new CountDownLatch(1);
-        host.scheduleTask(() -> {
-            try {
-                change.run();
-            } finally {
-                done.countDown();
-            }
-        }, 0);
-        try {
-            done.await(timeoutMs, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     boolean waitFor(BooleanSupplier condition) {
@@ -268,10 +266,14 @@ public class BitwigEditFacade {
 
     public Map<String, Object> createTrack(String type, Integer position, String name) throws BitwigApiException {
         final String operation = "createTrack";
-        int before = countTracks();
+        boolean effect = "effect".equals(type);
+        int regular = countTracks();
+        int effects = countEffectTracks();
+        int before = effect ? effects : regular;
         int pos = position == null ? before : position;
         if (pos < 0 || pos > before) {
-            throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation, "position must be 0.." + before);
+            throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation,
+                "position must be 0.." + before + (effect ? " (among effect tracks)" : ""));
         }
         switch (type) {
             case "audio" -> application.createAudioTrack(pos);
@@ -280,26 +282,24 @@ public class BitwigEditFacade {
             default -> throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
                 "type must be audio, instrument or effect");
         }
-        if (!"effect".equals(type) && !waitFor(() -> countTracks() > before)) {
+        if (!waitFor(() -> (effect ? countEffectTracks() : countTracks()) > before)) {
             throw new BitwigApiException(ErrorCode.BITWIG_TIMEOUT, operation, "Track was not created in time");
+        }
+        int flatIndex = effect ? countTracks() + pos : pos;
+        Track created = trackBank.getItemAt(flatIndex);
+        String expectedType = effect ? "Effect" : type;
+        if (!created.exists().get() || isMaster(created) || !expectedType.equalsIgnoreCase(created.trackType().get())) {
+            throw new BitwigApiException(ErrorCode.OPERATION_FAILED, operation,
+                "Track was created but could not be located at index " + flatIndex + "; not renaming anything");
+        }
+        if (name != null) {
+            created.name().set(name);
+            waitFor(() -> name.equals(created.name().get()));
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("type", type);
-        if (!"effect".equals(type)) {
-            Track created = trackBank.getItemAt(pos);
-            if (!created.exists().get() || isMaster(created)) {
-                throw new BitwigApiException(ErrorCode.OPERATION_FAILED, operation,
-                    "Track was created but could not be located at index " + pos + "; not renaming anything");
-            }
-            if (name != null) {
-                created.name().set(name);
-                waitFor(() -> name.equals(created.name().get()));
-            }
-            result.put("track_index", pos);
-            result.put("name", created.name().get());
-        } else {
-            result.put("note", "Effect tracks live outside the main track list; use list_tracks type=effect to find it");
-        }
+        result.put("track_index", flatIndex);
+        result.put("name", created.name().get());
         return result;
     }
 
@@ -339,13 +339,13 @@ public class BitwigEditFacade {
             track.name().set(name);
         }
         if (volume != null) {
-            track.volume().value().set(volume);
+            track.volume().value().setImmediately(volume);
         }
         if (volumeDb != null) {
             setVolumeDb(track, volumeDb);
         }
         if (pan != null) {
-            track.pan().value().set((pan + 1.0) / 2.0);
+            track.pan().value().setImmediately((pan + 1.0) / 2.0);
         }
         if (mute != null) {
             track.mute().set(mute);
@@ -374,21 +374,28 @@ public class BitwigEditFacade {
         Parameter vol = track.volume();
         double lo = 0.0;
         double hi = 1.0;
-        for (int i = 0; i < 14; i++) {
+        double best = 0.5;
+        double bestError = Double.MAX_VALUE;
+        for (int i = 0; i < 16; i++) {
             double mid = (lo + hi) / 2;
             String before = vol.displayedValue().get();
-            onHost(() -> vol.value().set(mid));
+            vol.value().setImmediately(mid);
             waitFor(() -> Math.abs(vol.value().get() - mid) < 1e-6);
             waitForChange(() -> vol.displayedValue().get(), before);
             Double shown = parseDb(vol.displayedValue().get());
+            if (shown != null && Math.abs(shown - targetDb) < bestError) {
+                bestError = Math.abs(shown - targetDb);
+                best = mid;
+            }
             if (shown == null || shown < targetDb) {
                 lo = mid;
             } else {
                 hi = mid;
             }
         }
-        double finalValue = (lo + hi) / 2;
-        onHost(() -> vol.value().set(finalValue));
+        // The display is rounded, so keep the position whose displayed value was closest to the target.
+        double finalValue = best;
+        vol.value().setImmediately(finalValue);
         waitFor(() -> Math.abs(vol.value().get() - finalValue) < 1e-6);
     }
 
@@ -491,7 +498,7 @@ public class BitwigEditFacade {
         }
         Send send = sendBank.getItemAt(sendIndex);
         if (value != null) {
-            send.value().set(value);
+            send.value().setImmediately(value);
         }
         if (enabled != null) {
             send.isEnabled().set(enabled);
@@ -731,9 +738,11 @@ public class BitwigEditFacade {
                 continue;
             }
             RemoteControl t = target;
-            onHost(() -> t.value().set(a.value()));
-            waitFor(() -> Math.abs(t.value().get() - a.value()) < 1e-4);
+            // Bitwig ignores set() on remote controls from extensions with no bound hardware; setImmediately() applies.
+            t.value().setImmediately(a.value());
+            boolean applied = waitFor(() -> Math.abs(t.value().get() - a.value()) < 1e-3);
             settle();
+            r.put("applied", applied);
             r.put("status", "success");
             r.put("page", foundPage);
             r.put("name", t.name().get());

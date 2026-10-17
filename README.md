@@ -12,6 +12,11 @@ The extension enables external AI agents (e.g., IDE-based copilots, standalone A
 -   Transport control (start/stop playback)
 -   Device parameter control for selected devices
 -   Clip and scene launching
+-   Project editing: create/delete/duplicate tracks; volume (exact dB), pan, mute, solo, arm, color, sends
+-   Devices: insert Bitwig built-ins by name or plugins by CLAP/VST3 id; copy, move, bypass, delete
+-   Parameters of any device on any track, by name or page, without moving the user's selection
+-   Clips: import audio/MIDI files into launcher slots, create clips, write MIDI notes
+-   Tempo, loop, metronome, record; run any Bitwig menu action; undo/redo
 
 ## Requirements
 
@@ -38,6 +43,16 @@ This will generate a `.bwextension` file in the `build/extensions` directory.
 ## Usage
 
 Once the extension is activated in Bitwig Studio, the MCP server will be available at `http://localhost:61169/mcp`. External AI agents can connect to this endpoint to send commands and receive responses.
+
+## Testing
+
+```bash
+./gradlew test                 # unit tests
+python3 scripts/live_test.py   # end-to-end against a running Bitwig with WigAI enabled
+```
+
+The live test creates, edits and deletes its own tracks, so it refuses to run unless an empty
+project is open (`--force` overrides).
 
 ## Development
 

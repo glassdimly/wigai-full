@@ -139,7 +139,7 @@ class BitwigEditFacadeTest {
     void setTrackPropertiesMapsPanAndColor() throws Exception {
         facade.setTrackProperties(0, "Stack", null, null, -1.0, true, null, null, null, "auto", "#FF8000");
         verify(track0.name()).set("Stack");
-        verify(track0.pan().value()).set(0.0);
+        verify(track0.pan().value()).setImmediately(0.0);
         verify(track0.mute()).set(true);
         verify(track0.monitorMode()).set("AUTO");
         verify(track0.color()).set(1.0f, 128 / 255f, 0.0f);
@@ -160,15 +160,26 @@ class BitwigEditFacadeTest {
             trackBank, List.of(deviceBank0, emptyBank), 0);
 
         assertEquals(1, facade.countTracks());
-        // Bitwig hasn't shown the new track yet, so index 1 is still the master: must not rename it
+        // Bitwig hasn't shown the new track yet, so nothing may be renamed
         assertThrows(BitwigApiException.class, () -> facade.createTrack("audio", null, "New"));
         verify(application).createAudioTrack(1);
         verify(master.name(), never()).set(anyString());
 
-        BitwigApiException e = assertThrows(BitwigApiException.class, () -> facade.deleteTrack(1));
+        // Even if the count goes up, a track of the wrong type at the target index is not renamed
+        when(track0.trackType().get()).thenReturn("Audio");
+        Track effect = mock(Track.class, RETURNS_DEEP_STUBS);
+        when(effect.exists().get()).thenReturn(true);
+        when(effect.trackType().get()).thenReturn("Effect");
+        when(trackBank.getSizeOfBank()).thenReturn(3);
+        when(trackBank.getItemAt(1)).thenReturn(effect);
+        when(trackBank.getItemAt(2)).thenReturn(master);
+        assertEquals(1, facade.countTracks());
+        assertEquals(1, facade.countEffectTracks());
+
+        BitwigApiException e = assertThrows(BitwigApiException.class, () -> facade.deleteTrack(2));
         assertEquals(ErrorCode.INVALID_PARAMETER, e.getErrorCode());
         verify(master, never()).deleteObject();
-        assertThrows(BitwigApiException.class, () -> facade.duplicateTrack(1));
+        assertThrows(BitwigApiException.class, () -> facade.duplicateTrack(2));
     }
 
     @Test

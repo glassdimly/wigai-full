@@ -95,7 +95,7 @@ def main():
     check("new tools are registered", {"create_track", "insert_device", "set_device_parameters"} <= tools,
           f"missing {sorted({'create_track', 'insert_device', 'set_device_parameters'} - tools)}")
 
-    existing = [t for t in m.tool("list_tracks") if t["type"] != "master"]
+    existing = [t for t in m.tool("list_tracks") if t["type"] not in ("master", "effect")]
     if len(existing) > 2 and not args.force:
         print(f"Refusing to run: the open project has {len(existing)} tracks. This test creates, edits and deletes "
               "tracks and devices; open an empty project (File > New) or pass --force.")
@@ -184,7 +184,7 @@ def main():
         print("cleanup")
         for name in created:
             step(f"delete_track {name}", lambda name=name: m.tool("delete_track", track_name=name))
-        n_after = len([t for t in m.tool("list_tracks") if t["type"] != "master"])
+        n_after = len([t for t in m.tool("list_tracks") if t["type"] not in ("master", "effect")])
         check("track count restored", n_after == n_before, f"{n_before} -> {n_after}")
     return finish()
 
