@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import urllib.request
 
 PASS, FAIL = [], []
@@ -179,6 +180,20 @@ def main():
     r = step("set_transport metronome toggle", lambda: m.tool("set_transport", metronome=not st["metronome_active"]))
     check("set_transport metronome", bool(r) and r["metronome"] == (not st["metronome_active"]), r)
     m.tool("set_transport", metronome=st["metronome_active"])
+
+    print("projects")
+    start = m.tool("status")["project_name"]
+    r = step("next_project", lambda: m.tool("next_project"))
+    if r:
+        time.sleep(1.5)
+        other = m.tool("status")["project_name"]
+        if other == start:
+            print("  skip project switching: only one project is open")
+        else:
+            step("previous_project", lambda: m.tool("previous_project"))
+            time.sleep(1.5)
+            check("next/previous_project switch and return", m.tool("status")["project_name"] == start,
+                  f"{start} -> {other} -> {m.tool('status')['project_name']}")
 
     if not args.keep:
         print("cleanup")
