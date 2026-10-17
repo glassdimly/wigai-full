@@ -72,10 +72,10 @@ class EditToolsTest {
     @Test
     void trackNameResolvesThroughFacade() throws Exception {
         when(facade.resolveTrackIndex(null, "Up Vocals", "set_device_enabled")).thenReturn(13);
-        when(facade.setDeviceEnabled(13, 4, true)).thenReturn(Map.of("enabled", true));
+        when(facade.setDeviceEnabled(13, 4, null, null, true)).thenReturn(Map.of("enabled", true));
         var r = call("set_device_enabled", Map.of("track_name", "Up Vocals", "device_index", 4, "enabled", true));
         McpResponseTestUtils.validateSuccessResponse(r);
-        verify(facade).setDeviceEnabled(13, 4, true);
+        verify(facade).setDeviceEnabled(13, 4, null, null, true);
     }
 
     @Test
@@ -91,13 +91,32 @@ class EditToolsTest {
     @Test
     void setDeviceParametersBuildsAssignments() throws Exception {
         when(facade.resolveTrackIndex(1, null, "set_device_parameters")).thenReturn(1);
-        when(facade.setDeviceParameters(eq(1), eq(0), anyList())).thenReturn(Map.of());
+        when(facade.setDeviceParameters(eq(1), eq(0), isNull(), isNull(), anyList())).thenReturn(Map.of());
         var r = call("set_device_parameters", Map.of("track_index", 1, "device_index", 0,
             "parameters", List.of(Map.of("name", "Mix", "value", 0.35), Map.of("page", 1, "index", 2, "value", 1))));
         McpResponseTestUtils.validateSuccessResponse(r);
-        verify(facade).setDeviceParameters(1, 0, List.of(
+        verify(facade).setDeviceParameters(eq(1), eq(0), isNull(), isNull(), eq(List.of(
             new BitwigEditFacade.ParamAssignment(null, null, "Mix", 0.35),
-            new BitwigEditFacade.ParamAssignment(1, 2, null, 1.0)));
+            new BitwigEditFacade.ParamAssignment(1, 2, null, 1.0))));
+    }
+
+    @Test
+    void chainArgumentsReachTheFacade() throws Exception {
+        when(facade.resolveTrackIndex(null, "Vocoder Stack", "insert_device")).thenReturn(14);
+        when(facade.insertDevice(14, 0, "Modulator", "Audio Receiver", null, null, null, null)).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(call("insert_device", Map.of("track_name", "Vocoder Stack",
+            "device_index", 0, "chain", "Modulator", "bitwig_device", "Audio Receiver")));
+
+        when(facade.resolveTrackIndex(14, null, "move_device")).thenReturn(14);
+        when(facade.copyOrMoveDevice(14, 0, "Modulator", 0, 14, 0, "Carrier", null, null, true)).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(call("move_device", Map.of("from_track_index", 14,
+            "from_device_index", 0, "from_chain", "Modulator", "from_chain_device_index", 0,
+            "to_track_index", 14, "to_device_index", 0, "to_chain", "Carrier")));
+
+        when(facade.resolveTrackIndex(14, null, "get_device_parameters")).thenReturn(14);
+        when(facade.getDeviceParameters(14, 0, "Carrier", 1, null)).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(call("get_device_parameters", Map.of("track_index", 14,
+            "device_index", 0, "chain", "Carrier", "chain_device_index", 1)));
     }
 
     @Test
