@@ -387,6 +387,12 @@ public class EditTools {
             BitwigEditFacade f, BitwigSessionFacade s, StructuredLogger log) {
         List<McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>();
 
+        specs.add(tool("set_engine_active",
+            "Activate or deactivate Bitwig's audio engine for the current project. Only one open project has the "
+                + "engine; without it nothing plays, meters or auditions (status shows audio_engine_active).",
+            "\"active\": {\"type\": \"boolean\"}", "\"active\"", f, log,
+            a -> s.setEngineActive(f.application(), a.requiredBool("active"))));
+
         specs.add(tool("get_levels",
             "Current peak and RMS meter readings for every track and the master (0-1 of Bitwig's meter scale, "
                 + "not dB). Only meaningful while audio is playing.",
