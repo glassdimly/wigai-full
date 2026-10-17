@@ -1,6 +1,7 @@
 package io.github.fabb.wigai.mcp.tool;
 
 import io.github.fabb.wigai.bitwig.BitwigEditFacade;
+import io.github.fabb.wigai.bitwig.BitwigSessionFacade;
 import io.github.fabb.wigai.common.error.BitwigApiException;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
@@ -377,6 +378,88 @@ public class EditTools {
 
         specs.add(tool("undo", "Undo the last change in Bitwig.", "", null, f, log, a -> f.undo(false)));
         specs.add(tool("redo", "Redo the last undone change in Bitwig.", "", null, f, log, a -> f.undo(true)));
+
+        return specs;
+    }
+
+    /** Listening and auditioning tools backed by {@link BitwigSessionFacade}. */
+    public static List<McpServerFeatures.SyncToolSpecification> sessionSpecifications(
+            BitwigEditFacade f, BitwigSessionFacade s, StructuredLogger log) {
+        List<McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>();
+
+        specs.add(tool("get_levels",
+            "Current peak and RMS meter readings for every track and the master (0-1 of Bitwig's meter scale, "
+                + "not dB). Only meaningful while audio is playing.",
+            "", null, f, log, a -> s.getLevels()));
+
+        specs.add(tool("list_cue_markers", "List arranger cue markers with their positions in beats.",
+            "", null, f, log, a -> s.listCueMarkers()));
+
+        specs.add(tool("go_to_cue_marker", "Jump playback to a cue marker by index or name.",
+            """
+                "index": {"type": "integer", "minimum": 0},
+                "name": {"type": "string"},
+                "quantized": {"type": "boolean", "description": "Wait for the launch quantization (default false)"}""",
+            null, f, log,
+            a -> s.goToCueMarker(a.integer("index"), a.string("name"), Boolean.TRUE.equals(a.bool("quantized")))));
+
+        specs.add(tool("set_arrangement", "Set the arranger loop range (in beats) and/or the time signature, e.g. '6/8'.",
+            """
+                "loop_start_beats": {"type": "number", "minimum": 0},
+                "loop_length_beats": {"type": "number", "exclusiveMinimum": 0},
+                "time_signature": {"type": "string"}""",
+            null, f, log,
+            a -> s.setArrangement(a.number("loop_start_beats"), a.number("loop_length_beats"), a.string("time_signature"))));
+
+        specs.add(tool("rename_scene", "Rename a scene.",
+            """
+                "scene_index": {"type": "integer", "minimum": 0},
+                "name": {"type": "string"}""",
+            "\"scene_index\", \"name\"", f, log,
+            a -> s.renameScene(a.requiredInt("scene_index"), a.requiredString("name"))));
+
+        specs.add(tool("stop_track", "Stop a track's launcher clip, or return the track to arrangement playback.",
+            TRACK_PROPS + ",\n\"return_to_arrangement\": {\"type\": \"boolean\"}", null, f, log,
+            a -> s.stopTrack(a.track(), Boolean.TRUE.equals(a.bool("return_to_arrangement")))));
+
+        specs.add(tool("play_notes",
+            "Play notes into a track's instrument right now, without a clip, to audition a sound or chord. "
+                + "Times are in milliseconds from the call.",
+            TRACK_PROPS + """
+                ,
+                "notes": {"type": "array", "items": {"type": "object", "properties": {
+                    "pitch": {"type": "integer", "minimum": 0, "maximum": 127},
+                    "velocity": {"type": "integer", "minimum": 1, "maximum": 127},
+                    "start_ms": {"type": "integer", "minimum": 0},
+                    "duration_ms": {"type": "integer", "minimum": 1}},
+                  "required": ["pitch", "duration_ms"]}}""",
+            "\"notes\"", f, log,
+            a -> {
+                List<BitwigSessionFacade.AuditionNote> notes = new ArrayList<>();
+                for (Map<String, Object> n : a.list("notes")) {
+                    Args na = new Args(n, f, "play_notes");
+                    Integer vel = na.integer("velocity");
+                    Integer start = na.integer("start_ms");
+                    notes.add(new BitwigSessionFacade.AuditionNote(na.requiredInt("pitch"), vel == null ? 100 : vel,
+                        start == null ? 0 : start, na.requiredInt("duration_ms")));
+                }
+                return s.playNotes(a.track(), notes);
+            }));
+
+        specs.add(tool("read_notes", "Read the MIDI notes of a launcher clip (beats from the clip start) and its loop settings.",
+            TRACK_PROPS + ",\n\"slot_index\": {\"type\": \"integer\", \"minimum\": 0}", "\"slot_index\"", f, log,
+            a -> s.readNotes(a.track(), a.requiredInt("slot_index"))));
+
+        specs.add(tool("set_clip", "Rename a launcher clip and/or set its loop start and length in beats.",
+            TRACK_PROPS + """
+                ,
+                "slot_index": {"type": "integer", "minimum": 0},
+                "name": {"type": "string"},
+                "loop_start_beats": {"type": "number", "minimum": 0},
+                "loop_length_beats": {"type": "number", "exclusiveMinimum": 0}""",
+            "\"slot_index\"", f, log,
+            a -> s.setClip(a.track(), a.requiredInt("slot_index"), a.string("name"), a.number("loop_start_beats"),
+                a.number("loop_length_beats"))));
 
         return specs;
     }
