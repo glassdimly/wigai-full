@@ -1,5 +1,6 @@
 package io.github.fabb.wigai.mcp.tool;
 
+import io.github.fabb.wigai.bitwig.BitwigContainerFacade;
 import io.github.fabb.wigai.bitwig.BitwigEditFacade;
 import io.github.fabb.wigai.bitwig.BitwigProjectFacade;
 import io.github.fabb.wigai.bitwig.BitwigSessionFacade;
@@ -140,6 +141,24 @@ public class EditTools {
             return out;
         }
 
+        Map<String, String> stringMap(String key) {
+            Object v = raw.get(key);
+            if (v == null) {
+                return Map.of();
+            }
+            if (!(v instanceof Map<?, ?> m)) {
+                throw new IllegalArgumentException("Parameter '" + key + "' must be an object");
+            }
+            Map<String, String> out = new java.util.LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : m.entrySet()) {
+                if (!(e.getValue() instanceof String sv)) {
+                    throw new IllegalArgumentException("Values of '" + key + "' must be strings");
+                }
+                out.put(String.valueOf(e.getKey()), sv);
+            }
+            return out;
+        }
+
         int track() throws BitwigApiException {
             return facade.resolveTrackIndex(integer("track_index"), string("track_name"), operation);
         }
@@ -221,7 +240,8 @@ public class EditTools {
 
         specs.add(tool("insert_device",
             "Insert a device on a track: a Bitwig built-in by name (e.g. 'EQ+', 'Audio Receiver', 'Reverb'), "
-                + "or a plugin by CLAP id (e.g. 'org.surge-synth-team.surge-xt') or VST3 class id. "
+                + "a plugin by CLAP id (e.g. 'org.surge-synth-team.surge-xt') or VST3 class id, "
+                + "or a preset file (.bwpreset path, see list_presets). "
                 + "To insert inside a device's chain, give device_index (the container) and chain; "
                 + "after_device_index then refers to a device in that chain.",
             TRACK_PROPS + ",\n" + POSITION_PROPS + """
@@ -230,10 +250,25 @@ public class EditTools {
                 "chain": {"type": "string", "description": "Chain inside device_index, e.g. 'Modulator'. See get_device_chains."},
                 "bitwig_device": {"type": "string"},
                 "clap_id": {"type": "string"},
-                "vst3_id": {"type": "string"}""",
+                "vst3_id": {"type": "string"},
+                "preset_file": {"type": "string", "description": "Absolute path of a .bwpreset (or other device file)"}""",
             null, f, log,
             a -> f.insertDevice(a.track(), a.integer("device_index"), a.string("chain"), a.string("bitwig_device"),
-                a.string("clap_id"), a.string("vst3_id"), a.string("position"), a.integer("after_device_index"))));
+                a.string("clap_id"), a.string("vst3_id"), a.string("preset_file"), a.string("position"),
+                a.integer("after_device_index"))));
+
+        specs.add(tool("replace_device",
+            "Replace a device (or a device inside a chain) in place with a Bitwig device, a plugin, or a preset file. "
+                + "Loading a preset onto an existing device is a replace with preset_file.",
+            DEVICE_PROPS + ",\n" + CHAIN_PROPS + """
+                ,
+                "bitwig_device": {"type": "string"},
+                "clap_id": {"type": "string"},
+                "vst3_id": {"type": "string"},
+                "preset_file": {"type": "string", "description": "Absolute path of a .bwpreset (or other device file)"}""",
+            "\"device_index\"", f, log,
+            a -> f.replaceDevice(a.track(), a.requiredInt("device_index"), a.string("chain"), a.integer("chain_device_index"),
+                a.string("bitwig_device"), a.string("clap_id"), a.string("vst3_id"), a.string("preset_file"))));
 
         specs.add(tool("get_device_chains",
             "List the chains inside a device and the devices in each: slots such as a Vocoder's 'Modulator' and "
@@ -544,6 +579,124 @@ public class EditTools {
             "\"slot_index\"", f, log,
             a -> s.transformClip(a.track(), a.requiredInt("slot_index"), a.integer("transpose"), a.number("quantize"),
                 a.bool("duplicate_content"), a.string("launch_quantization"), a.string("launch_mode"))));
+
+        return specs;
+    }
+
+    /** Drum pads, layer mixers, presets and the browser, backed by {@link BitwigContainerFacade}. */
+    public static List<McpServerFeatures.SyncToolSpecification> containerSpecifications(
+            BitwigEditFacade f, BitwigContainerFacade c, StructuredLogger log) {
+        List<McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>();
+        String mixProps = """
+                "name": {"type": "string"},
+                "volume": {"type": "number", "minimum": 0, "maximum": 1},
+                "volume_db": {"type": "number", "maximum": 6},
+                "pan": {"type": "number", "minimum": -1, "maximum": 1},
+                "mute": {"type": "boolean"},
+                "solo": {"type": "boolean"},
+                "activated": {"type": "boolean"}""";
+        String padProp = "\"pad\": {\"type\": \"integer\", \"minimum\": 0, \"maximum\": 127, "
+            + "\"description\": \"MIDI key of the pad (36 = C1, the usual kick)\"}";
+
+        specs.add(tool("list_drum_pads",
+            "The pads of a Drum Machine by MIDI key: name, volume, pan, mute, solo and the devices on each pad. "
+                + "Empty pads are left out unless include_empty.",
+            DEVICE_PROPS + ",\n\"include_empty\": {\"type\": \"boolean\"}", "\"device_index\"", f, log,
+            a -> c.listDrumPads(a.track(), a.requiredInt("device_index"), Boolean.TRUE.equals(a.bool("include_empty")))));
+
+        specs.add(tool("set_drum_pad", "Rename a Drum Machine pad or change its volume, pan, mute, solo or activation.",
+            DEVICE_PROPS + ",\n" + padProp + ",\n" + mixProps, "\"device_index\", \"pad\"", f, log,
+            a -> c.setDrumPad(a.track(), a.requiredInt("device_index"), a.requiredInt("pad"), a.string("name"),
+                a.number("volume"), a.number("volume_db"), a.number("pan"), a.bool("mute"), a.bool("solo"),
+                a.bool("activated"))));
+
+        specs.add(tool("insert_into_drum_pad",
+            "Add a device to a Drum Machine pad (after what is there): a Bitwig device, a plugin, a preset file, "
+                + "or a sample file (Bitwig creates a Sampler for it).",
+            DEVICE_PROPS + ",\n" + padProp + """
+                ,
+                "bitwig_device": {"type": "string"},
+                "clap_id": {"type": "string"},
+                "vst3_id": {"type": "string"},
+                "file": {"type": "string", "description": "Absolute path of a sample or preset"}""",
+            "\"device_index\", \"pad\"", f, log,
+            a -> c.insertIntoDrumPad(a.track(), a.requiredInt("device_index"), a.requiredInt("pad"),
+                a.string("bitwig_device"), a.string("clap_id"), a.string("vst3_id"), a.string("file"))));
+
+        specs.add(tool("clear_drum_pads", "Unmute and/or unsolo every pad of a Drum Machine.",
+            DEVICE_PROPS + """
+                ,
+                "mutes": {"type": "boolean"},
+                "solos": {"type": "boolean"}""",
+            "\"device_index\"", f, log,
+            a -> c.clearDrumPads(a.track(), a.requiredInt("device_index"), Boolean.TRUE.equals(a.bool("mutes")),
+                Boolean.TRUE.equals(a.bool("solos")))));
+
+        specs.add(tool("list_layers",
+            "The layers of a layer device (Instrument Layer, FX Layer, ...) with their mixer settings and devices. "
+                + "Devices inside a layer are edited with chain 'layer:N' on the device tools.",
+            DEVICE_PROPS, "\"device_index\"", f, log,
+            a -> c.listLayers(a.track(), a.requiredInt("device_index"))));
+
+        specs.add(tool("set_layer", "Rename a layer or change its volume, pan, mute, solo or activation.",
+            DEVICE_PROPS + ",\n\"layer\": {\"type\": \"integer\", \"minimum\": 0},\n" + mixProps,
+            "\"device_index\", \"layer\"", f, log,
+            a -> c.setLayer(a.track(), a.requiredInt("device_index"), a.requiredInt("layer"), a.string("name"),
+                a.number("volume"), a.number("volume_db"), a.number("pan"), a.bool("mute"), a.bool("solo"),
+                a.bool("activated"))));
+
+        specs.add(tool("list_presets",
+            "Search Bitwig preset files on disk (installed packages and the user library). Every word of query must "
+                + "match the name, collection, device or category. Load one with insert_device or replace_device "
+                + "(preset_file). Packaged presets do not reveal their device; browser_open with mode 'replace' "
+                + "lists the presets of a device.",
+            """
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1},
+                "rescan": {"type": "boolean", "description": "Re-read the disk (after installing packages)"}""",
+            null, f, log,
+            a -> c.listPresets(a.string("query"), a.integer("limit"), Boolean.TRUE.equals(a.bool("rescan")))));
+
+        specs.add(tool("browser_open",
+            "Open Bitwig's browser to load something at a place: mode 'replace' (a device; Bitwig shows that "
+                + "device's presets), 'after'/'before' (a device), 'start'/'end' (the track's chain). It shows in "
+                + "Bitwig's window until browser_commit or browser_cancel.",
+            TRACK_PROPS + """
+                ,
+                "device_index": {"type": "integer", "minimum": 0},
+                "mode": {"type": "string", "enum": ["replace", "after", "before", "start", "end"]},
+                "content_type": {"type": "string", "description": "e.g. Devices, Presets, Samples (see content_types)"}""",
+            null, f, log,
+            a -> c.openBrowser(a.track(), a.integer("device_index"), a.string("mode"), a.string("content_type"))));
+
+        specs.add(tool("browser_state",
+            "The open browser: content type, the selected item of each filter column, and a page of results "
+                + "(64 per page). list_column also returns every item of that column.",
+            """
+                "list_column": {"type": "string", "enum": ["collection", "location", "device", "category", "tag", "device_type", "file_type", "creator"]},
+                "results_page": {"type": "integer", "minimum": 0}""",
+            null, f, log,
+            a -> c.browserState(a.string("list_column"), a.integer("results_page") == null ? 0 : a.integer("results_page"))));
+
+        specs.add(tool("browser_filter",
+            "Narrow the open browser: content_type, and filters as {column: item}, e.g. {\"category\": \"Bass\", "
+                + "\"creator\": \"Bitwig\"}. Columns: collection, location, device, category, tag, device_type, "
+                + "file_type, creator. An 'Any ...' item clears a column.",
+            """
+                "content_type": {"type": "string"},
+                "filters": {"type": "object", "additionalProperties": {"type": "string"}}""",
+            null, f, log,
+            a -> c.filterBrowser(a.string("content_type"), a.stringMap("filters"))));
+
+        specs.add(tool("browser_commit", "Load a result of the open browser, by name or by index, and close it.",
+            """
+                "result": {"type": "string"},
+                "result_index": {"type": "integer", "minimum": 0}""",
+            null, f, log,
+            a -> c.commitBrowser(a.string("result"), a.integer("result_index"))));
+
+        specs.add(tool("browser_cancel", "Close the browser without loading anything.", "", null, f, log,
+            a -> c.cancelBrowser()));
 
         return specs;
     }
