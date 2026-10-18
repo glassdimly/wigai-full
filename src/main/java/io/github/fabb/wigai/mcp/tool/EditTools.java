@@ -1,6 +1,7 @@
 package io.github.fabb.wigai.mcp.tool;
 
 import io.github.fabb.wigai.bitwig.BitwigEditFacade;
+import io.github.fabb.wigai.bitwig.BitwigProjectFacade;
 import io.github.fabb.wigai.bitwig.BitwigSessionFacade;
 import io.github.fabb.wigai.bitwig.DeviceCatalog;
 import io.github.fabb.wigai.common.error.BitwigApiException;
@@ -432,6 +433,117 @@ public class EditTools {
             "Device catalog coverage and freshness: entries and scans per kind, the most recent scans with what "
                 + "changed, scans that failed, and scans made on an older Bitwig version.",
             "", null, f, log, a -> c.status()));
+
+        return specs;
+    }
+
+    /** Project-wide, transport, track-order and clip-management tools. */
+    public static List<McpServerFeatures.SyncToolSpecification> projectSpecifications(
+            BitwigEditFacade f, BitwigSessionFacade s, BitwigProjectFacade p, StructuredLogger log) {
+        List<McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>();
+
+        specs.add(tool("project_state", "Whether any track is soloed, muted or armed, and whether the project has unsaved changes.",
+            "", null, f, log, a -> p.projectState()));
+
+        specs.add(tool("reset_project",
+            "Clear every solo, mute and/or arm in the project. A forgotten solo silences all other tracks.",
+            """
+                "unsolo": {"type": "boolean"},
+                "unmute": {"type": "boolean"},
+                "unarm": {"type": "boolean"}""",
+            null, f, log, a -> p.resetProject(Boolean.TRUE.equals(a.bool("unsolo")), Boolean.TRUE.equals(a.bool("unmute")),
+                Boolean.TRUE.equals(a.bool("unarm")))));
+
+        specs.add(tool("create_scene", "Add a new empty scene.", "", null, f, log, a -> p.createScene()));
+
+        specs.add(tool("set_groove", "Set the global groove. Values are normalized 0-1; the response shows Bitwig's displayed values.",
+            """
+                "enabled": {"type": "boolean"},
+                "shuffle_amount": {"type": "number", "minimum": 0, "maximum": 1},
+                "shuffle_rate": {"type": "number", "minimum": 0, "maximum": 1},
+                "accent_amount": {"type": "number", "minimum": 0, "maximum": 1},
+                "accent_rate": {"type": "number", "minimum": 0, "maximum": 1},
+                "accent_phase": {"type": "number", "minimum": 0, "maximum": 1}""",
+            null, f, log, a -> p.setGroove(a.bool("enabled"), a.number("shuffle_amount"), a.number("shuffle_rate"),
+                a.number("accent_amount"), a.number("accent_rate"), a.number("accent_phase"))));
+
+        specs.add(tool("set_transport_options",
+            "Transport settings beyond play/stop: punch in/out, metronome volume (0-1), pre-roll, automation write mode, "
+                + "launcher overdub, default launch quantization, post-recording action; or run a command "
+                + "(rewind, fast_forward, tap_tempo, continue, record). Enum values are Bitwig's ids; the response shows the current ones.",
+            """
+                "punch_in": {"type": "boolean"},
+                "punch_out": {"type": "boolean"},
+                "metronome_volume": {"type": "number", "minimum": 0, "maximum": 1},
+                "pre_roll": {"type": "string"},
+                "automation_write_mode": {"type": "string"},
+                "launcher_overdub": {"type": "boolean"},
+                "default_launch_quantization": {"type": "string"},
+                "post_recording_action": {"type": "string"},
+                "command": {"type": "string", "enum": ["rewind", "fast_forward", "tap_tempo", "continue", "record"]}""",
+            null, f, log, a -> p.setTransportOptions(a.bool("punch_in"), a.bool("punch_out"), a.number("metronome_volume"),
+                a.string("pre_roll"), a.string("automation_write_mode"), a.bool("launcher_overdub"),
+                a.string("default_launch_quantization"), a.string("post_recording_action"), a.string("command"))));
+
+        String clipMoveProps = """
+                "from_track_index": {"type": "integer", "minimum": 0},
+                "from_track_name": {"type": "string"},
+                "from_slot": {"type": "integer", "minimum": 0},
+                "to_track_index": {"type": "integer", "minimum": 0},
+                "to_track_name": {"type": "string"},
+                "to_slot": {"type": "integer", "minimum": 0}""";
+        specs.add(tool("copy_clip", "Copy a launcher clip to an empty slot (any track).", clipMoveProps, "\"from_slot\", \"to_slot\"", f, log,
+            a -> p.copyOrMoveClip(a.track("from_track_index", "from_track_name"), a.requiredInt("from_slot"),
+                a.track("to_track_index", "to_track_name"), a.requiredInt("to_slot"), false)));
+        specs.add(tool("move_clip", "Move a launcher clip to an empty slot (any track).", clipMoveProps, "\"from_slot\", \"to_slot\"", f, log,
+            a -> p.copyOrMoveClip(a.track("from_track_index", "from_track_name"), a.requiredInt("from_slot"),
+                a.track("to_track_index", "to_track_name"), a.requiredInt("to_slot"), true)));
+
+        String slotProps = TRACK_PROPS + ",\n\"slot_index\": {\"type\": \"integer\", \"minimum\": 0}";
+        specs.add(tool("duplicate_clip", "Duplicate a launcher clip into the next free slot.", slotProps, "\"slot_index\"", f, log,
+            a -> p.duplicateClip(a.track(), a.requiredInt("slot_index"))));
+        specs.add(tool("record_into_slot", "Start recording into a launcher slot (the track must be armed).", slotProps, "\"slot_index\"", f, log,
+            a -> p.recordIntoSlot(a.track(), a.requiredInt("slot_index"))));
+
+        specs.add(tool("edit_notes",
+            "Change notes in a launcher clip: all of them, or those matching a pitch and/or a start range in beats. "
+                + "velocity/pressure/chance 0-1, duration in beats, pan and timbre -1..1, gain 0-1, transpose in semitones "
+                + "(micro-pitch, fractional allowed), muted, repeats (count, 0 = off).",
+            slotProps + """
+                ,
+                "pitch": {"type": "integer", "minimum": 0, "maximum": 127},
+                "from_beats": {"type": "number", "minimum": 0},
+                "to_beats": {"type": "number", "minimum": 0},
+                "velocity": {"type": "number", "minimum": 0, "maximum": 1},
+                "duration": {"type": "number", "exclusiveMinimum": 0},
+                "gain": {"type": "number", "minimum": 0, "maximum": 1},
+                "pan": {"type": "number", "minimum": -1, "maximum": 1},
+                "timbre": {"type": "number", "minimum": -1, "maximum": 1},
+                "pressure": {"type": "number", "minimum": 0, "maximum": 1},
+                "transpose": {"type": "number"},
+                "chance": {"type": "number", "minimum": 0, "maximum": 1},
+                "muted": {"type": "boolean"},
+                "repeats": {"type": "integer", "minimum": 0}""",
+            "\"slot_index\"", f, log,
+            a -> s.editNotes(a.track(), a.requiredInt("slot_index"),
+                new BitwigSessionFacade.NoteFilter(a.integer("pitch"), a.number("from_beats"), a.number("to_beats")),
+                new BitwigSessionFacade.NoteChanges(a.number("velocity"), a.number("duration"), a.number("gain"),
+                    a.number("pan"), a.number("timbre"), a.number("pressure"), a.number("transpose"), a.number("chance"),
+                    a.bool("muted"), a.integer("repeats")))));
+
+        specs.add(tool("transform_clip",
+            "Whole-clip operations on a launcher clip: transpose (semitones), quantize (0-1 strength), duplicate its content, "
+                + "set launch quantization and launch mode (Bitwig enum ids; the response shows the current ones).",
+            slotProps + """
+                ,
+                "transpose": {"type": "integer"},
+                "quantize": {"type": "number", "minimum": 0, "maximum": 1},
+                "duplicate_content": {"type": "boolean"},
+                "launch_quantization": {"type": "string"},
+                "launch_mode": {"type": "string"}""",
+            "\"slot_index\"", f, log,
+            a -> s.transformClip(a.track(), a.requiredInt("slot_index"), a.integer("transpose"), a.number("quantize"),
+                a.bool("duplicate_content"), a.string("launch_quantization"), a.string("launch_mode"))));
 
         return specs;
     }

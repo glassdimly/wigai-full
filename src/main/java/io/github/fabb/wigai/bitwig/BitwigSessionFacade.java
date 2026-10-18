@@ -100,6 +100,8 @@ public class BitwigSessionFacade {
         clip.getLoopLength().markInterested();
         clip.getPlayStart().markInterested();
         clip.getPlayStop().markInterested();
+        clip.launchQuantization().markInterested();
+        clip.launchMode().markInterested();
         clip.setStepSize(Constants.CLIP_STEP_BEATS);
         clip.scrollToKey(0);
         clip.scrollToStep(0);
@@ -357,6 +359,92 @@ public class BitwigSessionFacade {
         Map<String, Object> result = clipProperties();
         result.put("track_index", trackIndex);
         result.put("slot_index", slotIndex);
+        return result;
+    }
+
+    /** Which notes to change: optional pitch, and a start range in beats from the clip start. */
+    public record NoteFilter(Integer pitch, Double fromBeats, Double toBeats) {
+        boolean matches(NoteStep s) {
+            double start = s.x() * Constants.CLIP_STEP_BEATS;
+            return (pitch == null || s.y() == pitch) && (fromBeats == null || start >= fromBeats - 1e-9)
+                && (toBeats == null || start < toBeats - 1e-9);
+        }
+    }
+
+    /** Per-note changes; null fields are left alone. Ranges follow Bitwig's NoteStep API. */
+    public record NoteChanges(Double velocity, Double duration, Double gain, Double pan, Double timbre,
+                              Double pressure, Double transpose, Double chance, Boolean muted, Integer repeats) {}
+
+    public Map<String, Object> editNotes(int trackIndex, int slotIndex, NoteFilter filter, NoteChanges c)
+            throws BitwigApiException {
+        focusClip(trackIndex, slotIndex, "editNotes");
+        int changed = 0;
+        for (NoteStep s : new ArrayList<>(steps.values())) {
+            if (!filter.matches(s)) {
+                continue;
+            }
+            if (c.velocity() != null) {
+                s.setVelocity(c.velocity());
+            }
+            if (c.duration() != null) {
+                s.setDuration(c.duration());
+            }
+            if (c.gain() != null) {
+                s.setGain(c.gain());
+            }
+            if (c.pan() != null) {
+                s.setPan(c.pan());
+            }
+            if (c.timbre() != null) {
+                s.setTimbre(c.timbre());
+            }
+            if (c.pressure() != null) {
+                s.setPressure(c.pressure());
+            }
+            if (c.transpose() != null) {
+                s.setTranspose(c.transpose());
+            }
+            if (c.chance() != null) {
+                s.setIsChanceEnabled(c.chance() < 1.0);
+                s.setChance(c.chance());
+            }
+            if (c.muted() != null) {
+                s.setIsMuted(c.muted());
+            }
+            if (c.repeats() != null) {
+                s.setIsRepeatEnabled(c.repeats() > 0);
+                s.setRepeatCount(Math.max(0, c.repeats()));
+            }
+            changed++;
+        }
+        sleep(timeoutMs > 0 ? 200 : 0);
+        return Map.of("track_index", trackIndex, "slot_index", slotIndex, "notes_changed", changed);
+    }
+
+    /** Whole-clip operations: transpose by semitones, quantize (0-1 strength), duplicate content, launch settings. */
+    public Map<String, Object> transformClip(int trackIndex, int slotIndex, Integer transpose, Double quantize,
+                                             Boolean duplicateContent, String launchQuantization, String launchMode)
+            throws BitwigApiException {
+        focusClip(trackIndex, slotIndex, "transformClip");
+        if (transpose != null) {
+            clip.transpose(transpose);
+        }
+        if (quantize != null) {
+            clip.quantize(quantize);
+        }
+        if (Boolean.TRUE.equals(duplicateContent)) {
+            clip.duplicateContent();
+        }
+        if (launchQuantization != null) {
+            clip.launchQuantization().set(launchQuantization);
+        }
+        if (launchMode != null) {
+            clip.launchMode().set(launchMode);
+        }
+        sleep(timeoutMs > 0 ? 300 : 0);
+        Map<String, Object> result = clipProperties();
+        result.put("launch_quantization", clip.launchQuantization().get());
+        result.put("launch_mode", clip.launchMode().get());
         return result;
     }
 

@@ -17,21 +17,22 @@ What the Bitwig Controller API (v19) can do that WigAI does not expose yet, orde
 | Listening | `set_engine_active`, `get_levels`, `play_notes` |
 | Arrangement | `list_cue_markers`, `go_to_cue_marker`, `set_arrangement` (loop range, time signature), `rename_scene` |
 | Projects and actions | `next_project`, `previous_project` (from #19), `list_actions`, `invoke_action`, `undo`, `redo` |
+| Project-wide | `project_state`, `reset_project` (unsolo/unmute/unarm all), `create_scene`, `set_groove`, `set_transport_options` (punch, metronome volume, pre-roll, automation write mode, launcher overdub, launch quantization, post-recording action, rewind/fast-forward/tap tempo) |
+| Clip management and note editing | `copy_clip`, `move_clip`, `duplicate_clip`, `record_into_slot`, `edit_notes` (velocity, length, gain, pan, timbre, pressure, micro-pitch, chance, mute, repeats), `transform_clip` (transpose, quantize, duplicate content, launch quantization/mode) |
+| Device knowledge | `list_installed_devices`, `describe_device` (on-demand control scans with history), `fetch_device_docs`, `catalog_status` |
 
 ## Next: high value
 
 1. **Presets and library search.** Read a device's current preset (`Device.presetName/presetCategory/presetCreator`), step through presets (`switchToNextPreset` and friends, `loadPreset`), and search Bitwig's library to insert a device or preset by name through the `Browser` / `PopupBrowser` sessions (`startBrowsing`, result banks, `commitSelectedResult`). Lets an agent say "load the 'Air Pizz' preset" instead of building a sound from an init patch.
 2. **Drum Machine and layer mixers.** `createDrumPadBank`, pad names, per-pad insertion (`DrumPad.insertionPoint`), per-pad and per-layer volume/pan/mute/solo (`DeviceLayer` and `DrumPad` are `Channel`s).
-3. **Richer note editing.** Per-note expressions on `NoteStep`: gain, pan, timbre, pressure, transpose, chance, occurrence, repeats, velocity spread, release velocity. Clip-wide `transpose`, `quantize`, shuffle and accent (`Clip.getShuffle/getAccent`).
+3. **Note editing leftovers.** Occurrence/recurrence conditions, velocity spread, release velocity; clip shuffle and accent (`Clip.getShuffle/getAccent`).
 4. **Arranger clip editing.** `createArrangerCursorClip` edits the notes of the arranger clip selected in the UI (placement itself is not possible, see below).
-5. **Slots and scenes.** `ClipLauncherSlot.duplicateClip`, `record`, copy/move clips and scenes (`InsertionPoint.copySlotsOrScenes/moveSlotsOrScenes`), `Project.createScene`, `createSceneFromPlayingLauncherClips`, delete scenes.
-6. **Track order and groups.** Move or copy tracks, including into groups (`InsertionPoint.moveTracks/copyTracks`), expand/collapse groups (`isGroupExpanded`), crossfade mode.
-7. **Project-wide toggles.** `Project.unsoloAll`, `unmuteAll`, `unarmAll`, `isModified`, cue volume/mix.
-8. **Groove.** Global shuffle and accent (`Groove`: enabled, shuffle amount/rate, accent amount/rate/phase).
+5. **Scenes.** `createSceneFromPlayingLauncherClips`, copy/move/delete scenes.
+6. **Track order and groups.** Expand/collapse groups (`isGroupExpanded`), crossfade mode. Moving or copying tracks is blocked: Bitwig 6.1.3 accepts `InsertionPoint.moveTracks/copyTracks` from an extension and silently does nothing, on the request thread and on the control thread alike (tested 2026-10-17). `duplicate_track` does work for copies.
+7. **Cue mix.** Cue volume/mix for headphone monitoring.
 
 ## Later
 
-9. **Transport extras.** Rewind, fast forward, restart, tap tempo, punch in/out, pre-roll, metronome volume, automation write mode (`automationWriteMode`), launcher overdub, default launch quantization, post-record action.
 10. **What is modulated.** Read macros and modulation sources (`Device.getMacro`, `getModulationSource`) so an agent can see why a knob moves.
 11. **Playing notes and raw MIDI.** `Channel.playingNotes` (which notes sound right now), `Track.sendMidi`.
 12. **UI focus.** Panel layouts (Arrange/Mix/Edit), show a clip or device in the editor (`showInEditor`, `selectInEditor`), make a track visible. Most of this is already reachable through `invoke_action`.
