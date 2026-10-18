@@ -106,7 +106,7 @@ class EditToolsTest {
     @Test
     void chainArgumentsReachTheFacade() throws Exception {
         when(facade.resolveTrackIndex(null, "Vocoder Stack", "insert_device")).thenReturn(14);
-        when(facade.insertDevice(14, 0, "Modulator", "Audio Receiver", null, null, null, null, null)).thenReturn(Map.of());
+        when(facade.insertDevice(14, 0, "Modulator", "Audio Receiver", null, null, null, null, null, null)).thenReturn(Map.of());
         McpResponseTestUtils.validateSuccessResponse(call("insert_device", Map.of("track_name", "Vocoder Stack",
             "device_index", 0, "chain", "Modulator", "bitwig_device", "Audio Receiver")));
 
@@ -142,15 +142,15 @@ class EditToolsTest {
     @Test
     void presetFileReachesInsertAndReplace() throws Exception {
         when(facade.resolveTrackIndex(0, null, "insert_device")).thenReturn(0);
-        when(facade.insertDevice(0, null, null, null, null, null, "/p/Kit.bwpreset", null, null)).thenReturn(Map.of());
+        when(facade.insertDevice(0, null, null, null, null, null, null, "/p/Kit.bwpreset", null, null)).thenReturn(Map.of());
         McpResponseTestUtils.validateSuccessResponse(call("insert_device",
             Map.of("track_index", 0, "preset_file", "/p/Kit.bwpreset")));
 
         when(facade.resolveTrackIndex(1, null, "replace_device")).thenReturn(1);
-        when(facade.replaceDevice(1, 2, "FX", 0, "Delay+", null, null, null)).thenReturn(Map.of());
+        when(facade.replaceDevice(1, 2, "FX", 0, "Delay+", null, null, null, null)).thenReturn(Map.of());
         McpResponseTestUtils.validateSuccessResponse(call("replace_device", Map.of("track_index", 1, "device_index", 2,
             "chain", "FX", "chain_device_index", 0, "bitwig_device", "Delay+")));
-        verify(facade).replaceDevice(1, 2, "FX", 0, "Delay+", null, null, null);
+        verify(facade).replaceDevice(1, 2, "FX", 0, "Delay+", null, null, null, null);
     }
 
     private McpSchema.CallToolResult callContainer(BitwigContainerFacade c, String name, Map<String, Object> args) {

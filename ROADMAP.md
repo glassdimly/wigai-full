@@ -24,12 +24,15 @@ Everything here is meant to go upstream to [fabb/WigAI](https://github.com/fabb/
 | Drum Machine and layers | `list_drum_pads`, `set_drum_pad` (name, volume, pan, mute, solo), `insert_into_drum_pad` (device, plugin, preset, or a sample, which becomes a Sampler), `clear_drum_pads`, `list_layers`, `set_layer`; device lists now show each device's loaded preset |
 | Note expressions, clip settings, scenes, arranger clips | `edit_notes` adds release velocity, velocity spread, occurrence, recurrence and repeat curves; `read_notes` reports every non-default expression; `set_clip` adds loop on/off, play start/stop, shuffle, accent, color; `arranger: true` on `read_notes` / `edit_notes` / `set_clip` / `transform_clip` and `write_arranger_notes` work on the arranger clip the user selected; `set_scene`, `delete_scene`, `duplicate_scene`, `copy_scene`, `move_scene`; `set_cue` (cue volume and mix); `set_track` adds group expand/collapse and crossfade side |
 | Listening, MIDI and the UI | `get_playing_notes` (notes sounding per track), `send_midi` (CC, pitch bend, program, aftertouch, raw), modulated values in `get_device_parameters`, `show` (panel layout, track, clip in editor, device) |
+| Following the user, and plugins | `get_events` (event log of transport, project, track, clip, selection and parameter changes, with long-poll), `watch` (streams changes as MCP progress and log notifications, [fabb/WigAI#3](https://github.com/fabb/WigAI/issues/3)); `list_installed_devices` reads CLAP, VST3 and VST2 plugins from Bitwig's own plugin cache; `vst2_id` on `insert_device` / `replace_device`; server instructions for agents and [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md) |
 | Device knowledge | `list_installed_devices`, `describe_device` (on-demand control scans with history), `fetch_device_docs`, `catalog_status` |
 
-## Next: high value
+## Next
 
-1. **Live state streaming** ([fabb/WigAI#3](https://github.com/fabb/WigAI/issues/3)). Push playhead position, levels and parameter changes as MCP notifications instead of polling.
-2. **Plugin inventory inside the extension.** `list_installed_devices` still depends on the Python scanner for CLAP/VST3 plugins; Bitwig's own plugin metadata cache could be read directly.
+Everything the Controller API offers that helps an agent make music is now exposed. Left:
+
+1. **Resource subscriptions.** Expose project state as MCP resources with `resources/updated` notifications once the MCP Java SDK supports subscriptions (0.11 does not); `get_events` and `watch` cover the need meanwhile.
+2. **UI automation for what the API cannot do** (routing, arranger placement): would need driving Bitwig's window from outside, which is fragile and takes over the user's screen. Not planned.
 
 ## Not possible with the Controller API
 

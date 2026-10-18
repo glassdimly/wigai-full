@@ -1,6 +1,7 @@
 package io.github.fabb.wigai.mcp.tool;
 
 import io.github.fabb.wigai.bitwig.BitwigContainerFacade;
+import io.github.fabb.wigai.bitwig.BitwigEventStream;
 import io.github.fabb.wigai.bitwig.BitwigEditFacade;
 import io.github.fabb.wigai.bitwig.BitwigProjectFacade;
 import io.github.fabb.wigai.bitwig.BitwigSessionFacade;
@@ -46,6 +47,12 @@ public class EditTools {
     @FunctionalInterface
     private interface Op {
         Object run(Args a) throws Exception;
+    }
+
+    /** A tool body that also needs the MCP exchange (to send notifications) and the request's progress token. */
+    @FunctionalInterface
+    private interface StreamingOp {
+        Object run(Args a, McpSyncServerExchange exchange, Object progressToken) throws Exception;
     }
 
     /** Thin typed accessor over raw MCP arguments. */
@@ -171,6 +178,24 @@ public class EditTools {
             return Boolean.TRUE.equals(bool("arranger"));
         }
 
+        List<String> stringList(String key) {
+            Object v = raw.get(key);
+            if (v == null) {
+                return List.of();
+            }
+            if (!(v instanceof List<?> l)) {
+                throw new IllegalArgumentException("Parameter '" + key + "' must be an array of strings");
+            }
+            List<String> out = new ArrayList<>();
+            for (Object o : l) {
+                if (!(o instanceof String str)) {
+                    throw new IllegalArgumentException("Items of '" + key + "' must be strings");
+                }
+                out.add(str);
+            }
+            return out;
+        }
+
         int track() throws BitwigApiException {
             return facade.resolveTrackIndex(integer("track_index"), string("track_name"), operation);
         }
@@ -191,6 +216,82 @@ public class EditTools {
             (exchange, req) -> McpErrorHandler.executeWithErrorHandling(name, logger,
                 () -> op.run(new Args(req.arguments(), facade, name)));
         return McpServerFeatures.SyncToolSpecification.builder().tool(t).callHandler(handler).build();
+    }
+
+    private static McpServerFeatures.SyncToolSpecification streamingTool(String name, String description,
+                                                                         String properties, BitwigEditFacade facade,
+                                                                         StructuredLogger logger, StreamingOp op) {
+        String schema = "{\"type\": \"object\", \"properties\": {" + properties + "}, \"additionalProperties\": false}";
+        var t = McpSchema.Tool.builder().name(name).description(description).inputSchema(schema).build();
+        BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =
+            (exchange, req) -> McpErrorHandler.executeWithErrorHandling(name, logger, () -> op.run(
+                new Args(req.arguments(), facade, name), exchange,
+                req.meta() == null ? null : req.meta().get("progressToken")));
+        return McpServerFeatures.SyncToolSpecification.builder().tool(t).callHandler(handler).build();
+    }
+
+    /** Following changes in Bitwig: a pollable event log, and a call that streams events as notifications. */
+    public static List<McpServerFeatures.SyncToolSpecification> eventSpecifications(
+            BitwigEditFacade f, BitwigEventStream events, StructuredLogger log) {
+        List<McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>();
+        String typesProp = "\"types\": {\"type\": \"array\", \"items\": {\"type\": \"string\", \"enum\": "
+            + "[\"transport\", \"project\", \"track\", \"clip\", \"selection\", \"parameter\"]}, "
+            + "\"description\": \"Only these kinds of change (default all)\"}";
+
+        specs.add(tool("get_events",
+            "Changes in Bitwig since since_seq: transport (play, record, loop, tempo), project (switch, engine), "
+                + "track (name, mute, solo, arm, volume, pan, added/removed), clip (launcher playback state, "
+                + "clips created/deleted), selection (the user's selected track, device, preset) and parameter (the "
+                + "selected device's knobs as the user turns them). Call without since_seq to get a starting point, "
+                + "then pass next_seq back. wait_ms waits up to that long for the next change (long-poll). Rapid "
+                + "changes to the same thing are merged into the latest value.",
+            """
+                "since_seq": {"type": "integer", "minimum": 0},
+                "wait_ms": {"type": "integer", "minimum": 0, "maximum": 30000},
+                """ + typesProp,
+            null, f, log,
+            a -> events.events(a.integer("since_seq") == null ? null : a.integer("since_seq").longValue(),
+                a.stringList("types"), a.integer("wait_ms") == null ? 0 : a.integer("wait_ms"))));
+
+        specs.add(streamingTool("watch",
+            "Watch Bitwig for duration_ms (up to 60000) and stream each change as it happens: as an MCP progress "
+                + "notification (when the call carries a progress token) and as a log message (logger "
+                + "'wigai.events'). Returns every change seen, so clients that do not show notifications still get them.",
+            """
+                "duration_ms": {"type": "integer", "minimum": 100, "maximum": 60000},
+                """ + typesProp,
+            f, log,
+            (a, exchange, token) -> {
+                long duration = a.integer("duration_ms") == null ? 10000 : a.integer("duration_ms");
+                List<String> types = a.stringList("types");
+                long deadline = System.currentTimeMillis() + duration;
+                long since = events.buffer().latestSeq();
+                List<Map<String, Object>> seen = new ArrayList<>();
+                var json = new com.fasterxml.jackson.databind.ObjectMapper();
+                while (System.currentTimeMillis() < deadline) {
+                    for (var e : events.buffer().since(since, types, deadline - System.currentTimeMillis())) {
+                        since = e.seq();
+                        Map<String, Object> m = e.toMap();
+                        seen.add(m);
+                        String text = json.writeValueAsString(m);
+                        if (exchange != null) {
+                            if (token != null) {
+                                exchange.progressNotification(new McpSchema.ProgressNotification(String.valueOf(token),
+                                    (double) seen.size(), null, text));
+                            }
+                            exchange.loggingNotification(new McpSchema.LoggingMessageNotification(
+                                McpSchema.LoggingLevel.INFO, "wigai.events", text));
+                        }
+                    }
+                }
+                Map<String, Object> result = new java.util.LinkedHashMap<>();
+                result.put("duration_ms", duration);
+                result.put("events", seen);
+                result.put("next_seq", since);
+                result.put("now", events.now());
+                return result;
+            }));
+        return specs;
     }
 
     public static List<McpServerFeatures.SyncToolSpecification> specifications(BitwigEditFacade f, StructuredLogger log) {
@@ -254,7 +355,8 @@ public class EditTools {
 
         specs.add(tool("insert_device",
             "Insert a device on a track: a Bitwig built-in by name (e.g. 'EQ+', 'Audio Receiver', 'Reverb'), "
-                + "a plugin by CLAP id (e.g. 'org.surge-synth-team.surge-xt') or VST3 class id, "
+                + "a plugin by CLAP id (e.g. 'org.surge-synth-team.surge-xt'), VST3 class id or VST2 id "
+                + "(see list_installed_devices), "
                 + "or a preset file (.bwpreset path, see list_presets). "
                 + "To insert inside a device's chain, give device_index (the container) and chain; "
                 + "after_device_index then refers to a device in that chain.",
@@ -265,11 +367,12 @@ public class EditTools {
                 "bitwig_device": {"type": "string"},
                 "clap_id": {"type": "string"},
                 "vst3_id": {"type": "string"},
+                "vst2_id": {"type": "integer"},
                 "preset_file": {"type": "string", "description": "Absolute path of a .bwpreset (or other device file)"}""",
             null, f, log,
             a -> f.insertDevice(a.track(), a.integer("device_index"), a.string("chain"), a.string("bitwig_device"),
-                a.string("clap_id"), a.string("vst3_id"), a.string("preset_file"), a.string("position"),
-                a.integer("after_device_index"))));
+                a.string("clap_id"), a.string("vst3_id"), a.integer("vst2_id"), a.string("preset_file"),
+                a.string("position"), a.integer("after_device_index"))));
 
         specs.add(tool("replace_device",
             "Replace a device (or a device inside a chain) in place with a Bitwig device, a plugin, or a preset file. "
@@ -279,10 +382,12 @@ public class EditTools {
                 "bitwig_device": {"type": "string"},
                 "clap_id": {"type": "string"},
                 "vst3_id": {"type": "string"},
+                "vst2_id": {"type": "integer"},
                 "preset_file": {"type": "string", "description": "Absolute path of a .bwpreset (or other device file)"}""",
             "\"device_index\"", f, log,
             a -> f.replaceDevice(a.track(), a.requiredInt("device_index"), a.string("chain"), a.integer("chain_device_index"),
-                a.string("bitwig_device"), a.string("clap_id"), a.string("vst3_id"), a.string("preset_file"))));
+                a.string("bitwig_device"), a.string("clap_id"), a.string("vst3_id"), a.integer("vst2_id"),
+                a.string("preset_file"))));
 
         specs.add(tool("get_device_chains",
             "List the chains inside a device and the devices in each: slots such as a Vocoder's 'Modulator' and "

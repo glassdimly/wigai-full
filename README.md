@@ -7,6 +7,14 @@
 >
 > Until they are merged, this repo carries both, and its releases contain the combined extension. It is a drop-in replacement: same extension ID, name and MCP port as WigAI, so Bitwig treats it as the same controller.
 
+What the fork adds beyond those PRs (92 tools in all; see [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md) for how they fit together and [ROADMAP.md](ROADMAP.md) for what Bitwig's API cannot do):
+
+- Device knowledge: every installed Bitwig device and plugin (CLAP, VST3, VST2 from Bitwig's plugin cache), on-demand control scans, Bitwig's own device descriptions
+- Presets and Bitwig's browser, Drum Machine pads, layer mixers, device chains (Vocoder carrier/modulator and the like)
+- Note expressions and conditions, clip settings, scenes, arranger clips selected by the user, groove, cue mix
+- Following the user: an event log of changes (`get_events`, long-poll) and `watch`, which streams them as MCP notifications
+- Listening: meters, playing notes, auditioning notes, sending MIDI
+
 Original README follows.
 
 # WigAI - Bitwig Studio Extension for AI Control
@@ -59,12 +67,17 @@ Once the extension is activated in Bitwig Studio, the MCP server will be availab
 ## Testing
 
 ```bash
-./gradlew test                 # unit tests
-python3 scripts/live_test.py   # end-to-end against a running Bitwig with WigAI enabled
+./gradlew test                            # unit tests
+python3 scripts/live_test.py              # end-to-end against a running Bitwig with WigAI enabled
+python3 scripts/live_test_project.py      # project-wide tools, groove, clip management
+python3 scripts/live_test_container.py    # presets, browser, drum pads, layers
+python3 scripts/live_test_notes.py        # note expressions, clip settings, scenes, cue mix
+python3 scripts/live_test_midi.py         # playing notes, MIDI, modulation readout, show
+python3 scripts/live_test_events.py       # plugin inventory, get_events, watch streaming
 ```
 
-The live test creates, edits and deletes its own tracks, so it refuses to run unless an empty
-project is open (`--force` overrides).
+The live tests create, edit and delete their own tracks, so they refuse to run unless an empty
+project is open (`live_test.py --force` overrides). Never run them against a song you care about.
 
 ## Development
 
