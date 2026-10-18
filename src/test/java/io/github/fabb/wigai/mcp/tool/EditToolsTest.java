@@ -1,6 +1,7 @@
 package io.github.fabb.wigai.mcp.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.fabb.wigai.bitwig.BitwigContainerFacade;
 import io.github.fabb.wigai.bitwig.BitwigEditFacade;
 import io.github.fabb.wigai.common.Logger;
 import io.github.fabb.wigai.common.error.BitwigApiException;
@@ -103,7 +104,7 @@ class EditToolsTest {
     @Test
     void chainArgumentsReachTheFacade() throws Exception {
         when(facade.resolveTrackIndex(null, "Vocoder Stack", "insert_device")).thenReturn(14);
-        when(facade.insertDevice(14, 0, "Modulator", "Audio Receiver", null, null, null, null)).thenReturn(Map.of());
+        when(facade.insertDevice(14, 0, "Modulator", "Audio Receiver", null, null, null, null, null)).thenReturn(Map.of());
         McpResponseTestUtils.validateSuccessResponse(call("insert_device", Map.of("track_name", "Vocoder Stack",
             "device_index", 0, "chain", "Modulator", "bitwig_device", "Audio Receiver")));
 
@@ -134,5 +135,46 @@ class EditToolsTest {
             "notes", List.of(Map.of("start", 0, "pitch", 60, "duration", 1.5))));
         McpResponseTestUtils.validateSuccessResponse(r);
         verify(facade).writeNotes(0, 0, List.of(new BitwigEditFacade.Note(0, 60, 100, 1.5)), true);
+    }
+
+    @Test
+    void presetFileReachesInsertAndReplace() throws Exception {
+        when(facade.resolveTrackIndex(0, null, "insert_device")).thenReturn(0);
+        when(facade.insertDevice(0, null, null, null, null, null, "/p/Kit.bwpreset", null, null)).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(call("insert_device",
+            Map.of("track_index", 0, "preset_file", "/p/Kit.bwpreset")));
+
+        when(facade.resolveTrackIndex(1, null, "replace_device")).thenReturn(1);
+        when(facade.replaceDevice(1, 2, "FX", 0, "Delay+", null, null, null)).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(call("replace_device", Map.of("track_index", 1, "device_index", 2,
+            "chain", "FX", "chain_device_index", 0, "bitwig_device", "Delay+")));
+        verify(facade).replaceDevice(1, 2, "FX", 0, "Delay+", null, null, null);
+    }
+
+    private McpSchema.CallToolResult callContainer(BitwigContainerFacade c, String name, Map<String, Object> args) {
+        var spec = EditTools.containerSpecifications(facade, c, new StructuredLogger(mock(Logger.class), "test")).stream()
+            .filter(s -> s.tool().name().equals(name)).findFirst().orElseThrow();
+        return spec.callHandler().apply(null, new McpSchema.CallToolRequest(name, args));
+    }
+
+    @Test
+    void containerToolsPassArguments() throws Exception {
+        BitwigContainerFacade c = mock(BitwigContainerFacade.class);
+        ObjectMapper om = new ObjectMapper();
+        for (var s : EditTools.containerSpecifications(facade, c, new StructuredLogger(mock(Logger.class), "test"))) {
+            assertEquals("object", om.readTree(om.writeValueAsString(s.tool().inputSchema())).get("type").asText());
+        }
+        when(facade.resolveTrackIndex(null, "Drums", "set_drum_pad")).thenReturn(3);
+        when(c.setDrumPad(3, 0, 36, "Kick", null, -6.0, -0.5, true, null, null)).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(callContainer(c, "set_drum_pad", Map.of("track_name", "Drums",
+            "device_index", 0, "pad", 36, "name", "Kick", "volume_db", -6, "pan", -0.5, "mute", true)));
+        verify(c).setDrumPad(3, 0, 36, "Kick", null, -6.0, -0.5, true, null, null);
+
+        when(c.filterBrowser("Bitwig Presets", Map.of("category", "Reverb"))).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(callContainer(c, "browser_filter",
+            Map.of("content_type", "Bitwig Presets", "filters", Map.of("category", "Reverb"))));
+
+        assertTrue(callContainer(c, "browser_filter", Map.of("filters", Map.of("category", 5))).isError());
+        assertTrue(callContainer(c, "set_drum_pad", Map.of("track_index", 0, "device_index", 0)).isError());
     }
 }

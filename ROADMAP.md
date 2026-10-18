@@ -19,17 +19,17 @@ What the Bitwig Controller API (v19) can do that WigAI does not expose yet, orde
 | Projects and actions | `next_project`, `previous_project` (from #19), `list_actions`, `invoke_action`, `undo`, `redo` |
 | Project-wide | `project_state`, `reset_project` (unsolo/unmute/unarm all), `create_scene`, `set_groove`, `set_transport_options` (punch, metronome volume, pre-roll, automation write mode, launcher overdub, launch quantization, post-recording action, rewind/fast-forward/tap tempo) |
 | Clip management and note editing | `copy_clip`, `move_clip`, `duplicate_clip`, `record_into_slot`, `edit_notes` (velocity, length, gain, pan, timbre, pressure, micro-pitch, chance, mute, repeats), `transform_clip` (transpose, quantize, duplicate content, launch quantization/mode) |
+| Presets and the library | `list_presets` (every .bwpreset on disk, searchable), `preset_file` on `insert_device`, `replace_device` (device, plugin or preset in place), `browser_open` / `browser_state` / `browser_filter` / `browser_commit` / `browser_cancel` (Bitwig's own browser: content types, every filter column, paged results; mode `replace` lists a device's presets) |
+| Drum Machine and layers | `list_drum_pads`, `set_drum_pad` (name, volume, pan, mute, solo), `insert_into_drum_pad` (device, plugin, preset, or a sample, which becomes a Sampler), `clear_drum_pads`, `list_layers`, `set_layer`; device lists now show each device's loaded preset |
 | Device knowledge | `list_installed_devices`, `describe_device` (on-demand control scans with history), `fetch_device_docs`, `catalog_status` |
 
 ## Next: high value
 
-1. **Presets and library search.** Read a device's current preset (`Device.presetName/presetCategory/presetCreator`), step through presets (`switchToNextPreset` and friends, `loadPreset`), and search Bitwig's library to insert a device or preset by name through the `Browser` / `PopupBrowser` sessions (`startBrowsing`, result banks, `commitSelectedResult`). Lets an agent say "load the 'Air Pizz' preset" instead of building a sound from an init patch.
-2. **Drum Machine and layer mixers.** `createDrumPadBank`, pad names, per-pad insertion (`DrumPad.insertionPoint`), per-pad and per-layer volume/pan/mute/solo (`DeviceLayer` and `DrumPad` are `Channel`s).
-3. **Note editing leftovers.** Occurrence/recurrence conditions, velocity spread, release velocity; clip shuffle and accent (`Clip.getShuffle/getAccent`).
-4. **Arranger clip editing.** `createArrangerCursorClip` edits the notes of the arranger clip selected in the UI (placement itself is not possible, see below).
-5. **Scenes.** `createSceneFromPlayingLauncherClips`, copy/move/delete scenes.
-6. **Track order and groups.** Expand/collapse groups (`isGroupExpanded`), crossfade mode. Moving or copying tracks is blocked: Bitwig 6.1.3 accepts `InsertionPoint.moveTracks/copyTracks` from an extension and silently does nothing, on the request thread and on the control thread alike (tested 2026-10-17). `duplicate_track` does work for copies.
-7. **Cue mix.** Cue volume/mix for headphone monitoring.
+1. **Note editing leftovers.** Occurrence/recurrence conditions, velocity spread, release velocity; clip shuffle and accent (`Clip.getShuffle/getAccent`).
+2. **Arranger clip editing.** `createArrangerCursorClip` edits the notes of the arranger clip selected in the UI (placement itself is not possible, see below).
+3. **Scenes.** `createSceneFromPlayingLauncherClips`, copy/move/delete scenes.
+4. **Track order and groups.** Expand/collapse groups (`isGroupExpanded`), crossfade mode. Moving or copying tracks is blocked: Bitwig 6.1.3 accepts `InsertionPoint.moveTracks/copyTracks` from an extension and silently does nothing, on the request thread and on the control thread alike (tested 2026-10-17). `duplicate_track` does work for copies.
+5. **Cue mix.** Cue volume/mix for headphone monitoring.
 
 ## Later
 
@@ -50,3 +50,5 @@ These need changes in Bitwig itself; tools should tell the user to do them by ha
 - **Parameters that are not on a remote-control page** ([fabb/WigAI#15](https://github.com/fabb/WigAI/issues/15)).
 - **Rendering, bouncing or exporting audio**, other than through application actions where Bitwig offers one.
 - **Opening a project from disk.** Only cycling through projects that are already open.
+- **Adding, removing or duplicating layers, and emptying a drum pad.** `DeviceLayer.duplicate()` / `deleteObject()`, `DrumPad.deleteObject()` and `host.duplicateObjects(layer)` are silently ignored in Bitwig 6.1.3. **`host.deleteObjects(drumPad)` crashes Bitwig** (ClassCastException on its GUI thread), taking every open project with it; never call it. Delete the devices on a pad or layer with `delete_device` and chain `layer:N` instead.
+- **Reading the device of a packaged preset from disk.** Presets from installed packages are encrypted; `browser_open` with mode `replace` shows which presets belong to a device.

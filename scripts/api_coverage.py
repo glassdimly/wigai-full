@@ -24,7 +24,7 @@ HARDWARE = re.compile(
 )
 HARDWARE_EXTRA = {"PianoKeyboard", "UsbDevice", "MidiExpressions", "NoteLatch", "Signal", "Setting", "Settings",
                   "Preferences", "DocumentState", "NotificationSettings", "HardwareDevice", "AudioHardwareIoInfo",
-                  "AudioIoDeviceMatcher", "MasterRecorder", "PopupBrowser"}
+                  "AudioIoDeviceMatcher", "MasterRecorder"}
 
 
 def api_jar():

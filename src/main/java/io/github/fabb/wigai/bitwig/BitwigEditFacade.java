@@ -237,9 +237,17 @@ public class BitwigEditFacade {
             m.put("index", i);
             m.put("name", d.name().get());
             m.put("enabled", d.isEnabled().get());
+            putPreset(m, d);
             out.add(m);
         }
         return out;
+    }
+
+    private static void putPreset(Map<String, Object> m, Device d) {
+        String preset = d.presetName().get();
+        if (preset != null && !preset.isEmpty() && !"init".equals(preset)) {
+            m.put("preset", preset);
+        }
     }
 
     boolean waitFor(BooleanSupplier condition) {
@@ -257,7 +265,7 @@ public class BitwigEditFacade {
         return condition.getAsBoolean();
     }
 
-    private void settle() {
+    void settle() {
         if (timeoutMs > 0) {
             sleep(Constants.SETTLE_MS);
         }
@@ -353,7 +361,7 @@ public class BitwigEditFacade {
             track.volume().value().setImmediately(volume);
         }
         if (volumeDb != null) {
-            setVolumeDb(track, volumeDb);
+            setVolumeDb(track.volume(), volumeDb);
         }
         if (pan != null) {
             track.pan().value().setImmediately((pan + 1.0) / 2.0);
@@ -381,8 +389,8 @@ public class BitwigEditFacade {
         return trackMixerState(trackIndex);
     }
 
-    private void setVolumeDb(Track track, double targetDb) {
-        Parameter vol = track.volume();
+    /** Sets a volume parameter (track, drum pad or layer) to a dB value by searching against its display. */
+    void setVolumeDb(Parameter vol, double targetDb) {
         double lo = 0.0;
         double hi = 1.0;
         double best = 0.5;
@@ -566,6 +574,7 @@ public class BitwigEditFacade {
                 d.name().markInterested();
                 d.isEnabled().markInterested();
                 d.deviceType().markInterested();
+                d.presetName().markInterested();
             }
         }
 
@@ -641,6 +650,7 @@ public class BitwigEditFacade {
             m.put("name", d.name().get());
             m.put("enabled", d.isEnabled().get());
             m.put("type", d.deviceType().get());
+            putPreset(m, d);
             out.add(m);
         }
         return out;
@@ -797,10 +807,29 @@ public class BitwigEditFacade {
     public Map<String, Object> insertDevice(int trackIndex, Integer deviceIndex, String chain, String bitwigDevice,
                                             String clapId, String vst3Id, String position, Integer afterDeviceIndex)
             throws BitwigApiException {
+        return insertDevice(trackIndex, deviceIndex, chain, bitwigDevice, clapId, vst3Id, null, position, afterDeviceIndex);
+    }
+
+    public Map<String, Object> insertDevice(int trackIndex, Integer deviceIndex, String chain, String bitwigDevice,
+                                            String clapId, String vst3Id, String presetFile, String position,
+                                            Integer afterDeviceIndex) throws BitwigApiException {
         final String operation = "insertDevice";
         Destination dest = destination(primary, trackIndex, deviceIndex, chain, position, afterDeviceIndex, operation);
-        InsertionPoint ip = dest.point();
         int before = countBank(dest.devices());
+        insertInto(dest.point(), bitwigDevice, clapId, vst3Id, presetFile, operation);
+        boolean added = waitFor(() -> countBank(dest.devices()) > before);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("inserted", added);
+        if (dest.chainName() != null) {
+            result.put("chain", dest.chainName());
+        }
+        result.put("devices", dest.chainName() != null ? summaries(dest.devices()) : deviceSummaries(trackIndex));
+        return result;
+    }
+
+    /** Inserts a Bitwig device, a plugin, or a file (.bwpreset, .bwdevice, a plugin preset, or a sample) at a point. */
+    void insertInto(InsertionPoint ip, String bitwigDevice, String clapId, String vst3Id, String file, String operation)
+            throws BitwigApiException {
         if (bitwigDevice != null) {
             UUID id = findBitwigDevice(bitwigDevice);
             if (id == null) {
@@ -812,17 +841,37 @@ public class BitwigEditFacade {
             ip.insertCLAPDevice(clapId);
         } else if (vst3Id != null) {
             ip.insertVST3Device(vst3Id);
+        } else if (file != null) {
+            if (!Files.isRegularFile(Path.of(file))) {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation, "No such file: " + file);
+            }
+            ip.insertFile(file);
         } else {
             throw new BitwigApiException(ErrorCode.MISSING_REQUIRED_PARAMETER, operation,
-                "Provide bitwig_device, clap_id or vst3_id");
+                "Provide bitwig_device, clap_id, vst3_id or preset_file");
         }
-        boolean added = waitFor(() -> countBank(dest.devices()) > before);
+    }
+
+    /**
+     * Replaces a device (or a device inside a chain) with another device or a preset file. Loading a preset
+     * this way is how a device's sound is swapped while keeping its place in the chain.
+     */
+    public Map<String, Object> replaceDevice(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
+                                             String bitwigDevice, String clapId, String vst3Id, String presetFile)
+            throws BitwigApiException {
+        final String operation = "replaceDevice";
+        Device device = resolveTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
+        String oldName = device.name().get();
+        String oldPreset = device.presetName().get();
+        insertInto(device.replaceDeviceInsertionPoint(), bitwigDevice, clapId, vst3Id, presetFile, operation);
+        waitFor(() -> !oldName.equals(device.name().get()) || !oldPreset.equals(device.presetName().get()), 4000);
+        settle();
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("inserted", added);
-        if (dest.chainName() != null) {
-            result.put("chain", dest.chainName());
-        }
-        result.put("devices", dest.chainName() != null ? summaries(dest.devices()) : deviceSummaries(trackIndex));
+        result.put("replaced", oldName);
+        result.put("device", device.name().get());
+        result.put("preset", device.presetName().get());
+        result.put("devices", chain == null ? deviceSummaries(trackIndex) : summaries(
+            selectChain(primary, chain, operation).devices()));
         return result;
     }
 
@@ -933,7 +982,7 @@ public class BitwigEditFacade {
     }
 
     /** Points the private edit cursor at a device without touching the user's selection. */
-    private void focusDevice(PinnableCursorDevice cursor, int trackIndex, int deviceIndex, String operation)
+    void focusDevice(PinnableCursorDevice cursor, int trackIndex, int deviceIndex, String operation)
             throws BitwigApiException {
         Track track = trackBank.getItemAt(trackIndex);
         Device device = resolveDevice(trackIndex, deviceIndex, operation);
@@ -1241,6 +1290,15 @@ public class BitwigEditFacade {
     // ========================================
     // Application actions
     // ========================================
+
+    Track trackAt(int trackIndex) {
+        return trackBank.getItemAt(trackIndex);
+    }
+
+    /** The private cursor track other facades attach their own cursor devices to (during init). */
+    CursorTrack editTrack() {
+        return editTrack;
+    }
 
     public Application application() {
         return application;

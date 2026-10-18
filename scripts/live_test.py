@@ -124,7 +124,7 @@ def main():
 
     print("devices")
     r = step("list_bitwig_devices", lambda: m.tool("list_bitwig_devices"))
-    check("list_bitwig_devices has EQ+", bool(r) and "EQ+" in r)
+    check("list_bitwig_devices has EQ+", bool(r) and any(d.get("name") == "EQ+" for d in r))
     r = step("insert_device EQ+", lambda: m.tool("insert_device", track_name="WigAI test audio", bitwig_device="EQ+"))
     check("insert_device EQ+", bool(r) and r["inserted"] and r["devices"][-1]["name"] == "EQ+", r)
     r = step("insert_device Reverb after EQ+", lambda: m.tool("insert_device", track_name="WigAI test audio",
