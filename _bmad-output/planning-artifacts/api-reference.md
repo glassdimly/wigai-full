@@ -951,6 +951,617 @@ Tools from [Epic 9](./prd/epic-9.md). Shared rules:
 *   **Parameters**: none.
 *   **Returns**: `{ "action": "undo" }`
 
+### Commands from Epics 10-15
+
+Tools from Epics 10-15. The shared rules of the [Project Editing Commands](#project-editing-commands) apply. Every tool returns `{ "status": "success", "data": ... }`; the live tests in `scripts/live_test_*.py` show real responses for each tool.
+
+#### Additions to Epic 9 tools
+
+*   Device tools (`insert_device`, `copy_device`/`move_device`, `delete_device`, `set_device_enabled`, `get_device_parameters`, `set_device_parameters`) take `chain` and `chain_device_index` (copy/move: `from_chain`, `from_chain_device_index`, `to_device_index`, `to_chain`) to work inside a device's chains ([Story 10.1](./stories/10.1.story.md)).
+*   `insert_device` also takes `vst2_id` and `preset_file`.
+*   `get_device_parameters` adds `modulated_value` / `modulated_display` to controls a modulator is moving.
+*   `set_track` adds `group_expanded` and `crossfade_mode`; `get_track_mixer` reports them.
+*   Device lists report each device's loaded `preset`.
+
+### Epic 10: Device Chains, Presets and Containers
+
+#### `get_device_chains`
+*   **Description**: List the chains inside a device and the devices in each: slots such as a Vocoder's 'Modulator' and 'Carrier' or an FX device's 'FX', and layers of FX/Instrument Layer devices.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0    // required; integer >= 0; 0-based device index on the track (see list_devices_on_track)
+    }
+    ```
+
+#### `list_presets`
+*   **Description**: Search Bitwig preset files on disk (installed packages and the user library). Every word of query must match the name, collection, device or category. Load one with insert_device or replace_device (preset_file). Packaged presets do not reveal their device; browser_open with mode 'replace' lists the presets of a device.
+*   **Parameters**:
+    ```json
+    {
+      "query": "...", // optional; string
+      "limit": 1,     // optional; integer >= 1
+      "rescan": true  // optional; boolean; Re-read the disk (after installing packages)
+    }
+    ```
+
+#### `replace_device`
+*   **Description**: Replace a device (or a device inside a chain) in place with a Bitwig device, a plugin, or a preset file. Loading a preset onto an existing device is a replace with preset_file.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,        // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",     // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0,       // required; integer >= 0; 0-based device index on the track (see list_devices_on_track)
+      "chain": "...",          // optional; string; A chain inside the device, e.g. 'Modulator' or 'Carrier' (Vocoder), 'FX' (FX devices), or 'layer:0' / 'layer:Name' (layer devices). See get_device_chains.
+      "chain_device_index": 0, // optional; integer >= 0; Device index within that chain (required with chain)
+      "bitwig_device": "...",  // optional; string
+      "clap_id": "...",        // optional; string
+      "vst3_id": "...",        // optional; string
+      "vst2_id": 0,            // optional; integer
+      "preset_file": "..."     // optional; string; Absolute path of a .bwpreset (or other device file)
+    }
+    ```
+
+#### `browser_open`
+*   **Description**: Open Bitwig's browser to load something at a place: mode 'replace' (a device; Bitwig shows that device's presets), 'after'/'before' (a device), 'start'/'end' (the track's chain). It shows in Bitwig's window until browser_commit or browser_cancel.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,      // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",   // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0,     // optional; integer >= 0
+      "mode": "replace",     // optional; "replace" | "after" | "before" | "start" | "end"
+      "content_type": "..."  // optional; string; e.g. Devices, Presets, Samples (see content_types)
+    }
+    ```
+
+#### `browser_state`
+*   **Description**: The open browser: content type, the selected item of each filter column, and a page of results (64 per page). list_column also returns every item of that column.
+*   **Parameters**:
+    ```json
+    {
+      "list_column": "collection", // optional; "collection" | "location" | "device" | "category" | "tag" | "device_type" | "file_type" | "creator"
+      "results_page": 0            // optional; integer >= 0
+    }
+    ```
+
+#### `browser_filter`
+*   **Description**: Narrow the open browser: content_type, and filters as {column: item}, e.g. {"category": "Bass", "creator": "Bitwig"}. Columns: collection, location, device, category, tag, device_type, file_type, creator. An 'Any ...' item clears a column.
+*   **Parameters**:
+    ```json
+    {
+      "content_type": "...",               // optional; string
+      "filters": { "category": "Reverb" }  // optional; object
+    }
+    ```
+
+#### `browser_commit`
+*   **Description**: Load a result of the open browser, by name or by index, and close it.
+*   **Parameters**:
+    ```json
+    {
+      "result": "...",   // optional; string
+      "result_index": 0  // optional; integer >= 0
+    }
+    ```
+
+#### `browser_cancel`
+*   **Description**: Close the browser without loading anything.
+*   **Parameters**: none.
+
+#### `list_drum_pads`
+*   **Description**: The pads of a Drum Machine by MIDI key: name, volume, pan, mute, solo and the devices on each pad. Empty pads are left out unless include_empty.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,      // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",   // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0,     // required; integer >= 0; 0-based device index on the track (see list_devices_on_track)
+      "include_empty": true  // optional; boolean
+    }
+    ```
+
+#### `set_drum_pad`
+*   **Description**: Rename a Drum Machine pad or change its volume, pan, mute, solo or activation.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0,   // required; integer >= 0; 0-based device index on the track (see list_devices_on_track)
+      "pad": 0,            // required; integer 0..127; MIDI key of the pad (36 = C1, the usual kick)
+      "name": "...",       // optional; string
+      "volume": 0.5,       // optional; number 0..1
+      "volume_db": 1.0,    // optional; number <= 6
+      "pan": 0.5,          // optional; number -1..1
+      "mute": true,        // optional; boolean
+      "solo": true,        // optional; boolean
+      "activated": true    // optional; boolean
+    }
+    ```
+
+#### `insert_into_drum_pad`
+*   **Description**: Add a device to a Drum Machine pad (after what is there): a Bitwig device, a plugin, a preset file, or a sample file (Bitwig creates a Sampler for it).
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,       // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",    // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0,      // required; integer >= 0; 0-based device index on the track (see list_devices_on_track)
+      "pad": 0,               // required; integer 0..127; MIDI key of the pad (36 = C1, the usual kick)
+      "bitwig_device": "...", // optional; string
+      "clap_id": "...",       // optional; string
+      "vst3_id": "...",       // optional; string
+      "file": "..."           // optional; string; Absolute path of a sample or preset
+    }
+    ```
+
+#### `clear_drum_pads`
+*   **Description**: Unmute and/or unsolo every pad of a Drum Machine.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0,   // required; integer >= 0; 0-based device index on the track (see list_devices_on_track)
+      "mutes": true,       // optional; boolean
+      "solos": true        // optional; boolean
+    }
+    ```
+
+#### `list_layers`
+*   **Description**: The layers of a layer device (Instrument Layer, FX Layer, ...) with their mixer settings and devices. Devices inside a layer are edited with chain 'layer:N' on the device tools.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0    // required; integer >= 0; 0-based device index on the track (see list_devices_on_track)
+    }
+    ```
+
+#### `set_layer`
+*   **Description**: Rename a layer or change its volume, pan, mute, solo or activation.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "device_index": 0,   // required; integer >= 0; 0-based device index on the track (see list_devices_on_track)
+      "layer": 0,          // required; integer >= 0
+      "name": "...",       // optional; string
+      "volume": 0.5,       // optional; number 0..1
+      "volume_db": 1.0,    // optional; number <= 6
+      "pan": 0.5,          // optional; number -1..1
+      "mute": true,        // optional; boolean
+      "solo": true,        // optional; boolean
+      "activated": true    // optional; boolean
+    }
+    ```
+
+### Epic 11: Device Knowledge
+
+#### `list_installed_devices`
+*   **Description**: Find devices and plugins installed on this machine (Bitwig built-ins, CLAP plugins, LV2 plugins usable through Carla). The query is matched against names, vendors, categories, descriptions and the device guide's 'use for' text, best matches first; e.g. 'vocal compressor', 'reverb', 'pitch'. Use it to pick candidates before recommending or inserting a device.
+*   **Parameters**:
+    ```json
+    {
+      "query": "...",   // optional; string
+      "kind": "bitwig"  // optional; "bitwig" | "clap" | "lv2"
+    }
+    ```
+
+#### `describe_device`
+*   **Description**: Everything known about one device: what it is for and how to use it (device guide), its plugin description, its chains, and every control's real range, units and options. Controls are measured the first time a device is described and cached (with a scan history); pass track/device_index to measure a device already in the project (its values are restored), or just a name to measure it on a temporary track. Measuring is skipped while the transport plays.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,        // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",     // optional; string; Exact track name (alternative to track_index)
+      "name": "...",           // optional; string; Bitwig device name, plugin name or CLAP id
+      "device_index": 0,       // optional; integer >= 0
+      "chain": "...",          // optional; string
+      "chain_device_index": 0, // optional; integer >= 0
+      "scan": true,            // optional; boolean; Measure controls if not cached (default true)
+      "rescan": true           // optional; boolean; Measure again even if cached
+    }
+    ```
+
+#### `catalog_status`
+*   **Description**: Device catalog coverage and freshness: entries and scans per kind, the most recent scans with what changed, scans that failed, and scans made on an older Bitwig version.
+*   **Parameters**: none.
+
+#### `fetch_device_docs`
+*   **Description**: Fetch Bitwig's own description of every built-in device from Bitwig's online user guide into the local catalog, so describe_device can include it (field bitwig_docs). Run once, and again after a Bitwig update; needs internet access.
+*   **Parameters**: none.
+
+### Epic 12: Listening and Auditioning
+
+#### `set_engine_active`
+*   **Description**: Activate or deactivate Bitwig's audio engine for the current project. Only one open project has the engine; without it nothing plays, meters or auditions (status shows audio_engine_active).
+*   **Parameters**:
+    ```json
+    {
+      "active": true  // required; boolean
+    }
+    ```
+
+#### `get_levels`
+*   **Description**: Current peak and RMS meter readings for every track and the master (0-1 of Bitwig's meter scale, not dB). Only meaningful while audio is playing.
+*   **Parameters**: none.
+
+#### `get_playing_notes`
+*   **Description**: Which notes are sounding right now on each track (from clips, the user's input or play_notes).
+*   **Parameters**: none.
+
+#### `play_notes`
+*   **Description**: Play notes into a track's instrument right now, without a clip, to audition a sound or chord. Times are in milliseconds from the call.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,                                                            // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",                                                         // optional; string; Exact track name (alternative to track_index)
+      "notes": [ { "pitch": 0, "velocity": 1, "start_ms": 0, "duration_ms": 1 } ]  // required; array
+    }
+    ```
+
+#### `send_midi`
+*   **Description**: Send a MIDI message into a track's instrument: cc (number, value 0-127), pitch_bend (value -8192..8191, 0 = center), program (number), aftertouch (value), or raw (status 0x80-0xEF, number, value). channel 0-15, default 0. Use play_notes for notes.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "type": "cc",        // required; "cc" | "pitch_bend" | "program" | "aftertouch" | "raw"
+      "channel": 0,        // optional; integer 0..15
+      "number": 0,         // optional; integer 0..127
+      "value": 0,          // optional; integer
+      "status": 0          // optional; integer
+    }
+    ```
+
+#### `show`
+*   **Description**: Bring something into view in Bitwig's window for the user: a panel layout (ARRANGE, MIX, EDIT), a track, a launcher clip in the editor (slot_index), or a device (device_index). Changes the user's selection.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,          // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",       // optional; string; Exact track name (alternative to track_index)
+      "panel_layout": "ARRANGE", // optional; "ARRANGE" | "MIX" | "EDIT"
+      "slot_index": 0,           // optional; integer >= 0
+      "device_index": 0          // optional; integer >= 0
+    }
+    ```
+
+### Epic 13: Arrangement, Scenes, Clips and Notes
+
+#### `list_cue_markers`
+*   **Description**: List arranger cue markers with their positions in beats.
+*   **Parameters**: none.
+
+#### `go_to_cue_marker`
+*   **Description**: Jump playback to a cue marker by index or name.
+*   **Parameters**:
+    ```json
+    {
+      "index": 0,        // optional; integer >= 0
+      "name": "...",     // optional; string
+      "quantized": true  // optional; boolean; Wait for the launch quantization (default false)
+    }
+    ```
+
+#### `set_arrangement`
+*   **Description**: Set the arranger loop range (in beats) and/or the time signature, e.g. '6/8'.
+*   **Parameters**:
+    ```json
+    {
+      "loop_start_beats": 1.0,  // optional; number >= 0
+      "loop_length_beats": 1.0, // optional; number
+      "time_signature": "..."   // optional; string
+    }
+    ```
+
+#### `stop_track`
+*   **Description**: Stop a track's launcher clip, or return the track to arrangement playback.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,              // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",           // optional; string; Exact track name (alternative to track_index)
+      "return_to_arrangement": true  // optional; boolean
+    }
+    ```
+
+#### `create_scene`
+*   **Description**: Add a new empty scene.
+*   **Parameters**: none.
+
+#### `rename_scene`
+*   **Description**: Rename a scene.
+*   **Parameters**:
+    ```json
+    {
+      "scene_index": 0, // required; integer >= 0
+      "name": "..."     // required; string
+    }
+    ```
+
+#### `set_scene`
+*   **Description**: Rename and/or color a scene.
+*   **Parameters**:
+    ```json
+    {
+      "scene_index": 0, // required; integer >= 0
+      "name": "...",    // optional; string
+      "color": "..."    // optional; string; #RRGGBB
+    }
+    ```
+
+#### `duplicate_scene`
+*   **Description**: Duplicate a scene and its clips; the copy goes below it.
+*   **Parameters**:
+    ```json
+    {
+      "scene_index": 0  // required; integer >= 0
+    }
+    ```
+
+#### `copy_scene`
+*   **Description**: Copy every clip of a scene onto another scene's row.
+*   **Parameters**:
+    ```json
+    {
+      "from_scene": 0, // required; integer >= 0
+      "to_scene": 0    // required; integer >= 0
+    }
+    ```
+
+#### `move_scene`
+*   **Description**: Move every clip of a scene onto another scene's row.
+*   **Parameters**:
+    ```json
+    {
+      "from_scene": 0, // required; integer >= 0
+      "to_scene": 0    // required; integer >= 0
+    }
+    ```
+
+#### `delete_scene`
+*   **Description**: Delete a scene and its clips.
+*   **Parameters**:
+    ```json
+    {
+      "scene_index": 0  // required; integer >= 0
+    }
+    ```
+
+#### `copy_clip`
+*   **Description**: Copy a launcher clip to an empty slot (any track).
+*   **Parameters**:
+    ```json
+    {
+      "from_track_index": 0,    // optional; integer >= 0
+      "from_track_name": "...", // optional; string
+      "from_slot": 0,           // required; integer >= 0
+      "to_track_index": 0,      // optional; integer >= 0
+      "to_track_name": "...",   // optional; string
+      "to_slot": 0              // required; integer >= 0
+    }
+    ```
+
+#### `move_clip`
+*   **Description**: Move a launcher clip to an empty slot (any track).
+*   **Parameters**:
+    ```json
+    {
+      "from_track_index": 0,    // optional; integer >= 0
+      "from_track_name": "...", // optional; string
+      "from_slot": 0,           // required; integer >= 0
+      "to_track_index": 0,      // optional; integer >= 0
+      "to_track_name": "...",   // optional; string
+      "to_slot": 0              // required; integer >= 0
+    }
+    ```
+
+#### `duplicate_clip`
+*   **Description**: Duplicate a launcher clip into the next free slot.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "slot_index": 0      // required; integer >= 0
+    }
+    ```
+
+#### `record_into_slot`
+*   **Description**: Start recording into a launcher slot (the track must be armed).
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "slot_index": 0      // required; integer >= 0
+    }
+    ```
+
+#### `set_clip`
+*   **Description**: Clip settings for a launcher clip (or the arranger's selected clip with arranger: true): name, loop on/off, loop start and length, play start and stop (beats), shuffle on/off, accent (0-1, 0.5 = none), color.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,         // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",      // optional; string; Exact track name (alternative to track_index)
+      "arranger": true,         // optional; boolean; Use the clip selected in Bitwig's arranger instead of a launcher slot
+      "slot_index": 0,          // optional; integer >= 0
+      "name": "...",            // optional; string
+      "loop_enabled": true,     // optional; boolean
+      "loop_start_beats": 1.0,  // optional; number >= 0
+      "loop_length_beats": 1.0, // optional; number
+      "play_start_beats": 1.0,  // optional; number >= 0
+      "play_stop_beats": 1.0,   // optional; number >= 0
+      "shuffle": true,          // optional; boolean
+      "accent": 0.5,            // optional; number 0..1
+      "color": "..."            // optional; string; #RRGGBB
+    }
+    ```
+
+#### `transform_clip`
+*   **Description**: Whole-clip operations on a launcher clip (or the arranger's selected clip with arranger: true): transpose (semitones), quantize (0-1 strength), duplicate its content, set launch quantization and launch mode (launcher only; Bitwig enum ids, the response shows the current ones).
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,             // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",          // optional; string; Exact track name (alternative to track_index)
+      "slot_index": 0,              // optional; integer >= 0
+      "arranger": true,             // optional; boolean; Use the clip selected in Bitwig's arranger instead of a launcher slot
+      "transpose": 0,               // optional; integer
+      "quantize": 0.5,              // optional; number 0..1
+      "duplicate_content": true,    // optional; boolean
+      "launch_quantization": "...", // optional; string
+      "launch_mode": "..."          // optional; string
+    }
+    ```
+
+#### `read_notes`
+*   **Description**: Read the MIDI notes of a launcher clip, or of the arranger's selected clip with arranger: true (beats from the clip start), with every expression and condition that is not at its default, and the clip settings.
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,    // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...", // optional; string; Exact track name (alternative to track_index)
+      "slot_index": 0,     // optional; integer >= 0
+      "arranger": true     // optional; boolean; Use the clip selected in Bitwig's arranger instead of a launcher slot
+    }
+    ```
+
+#### `edit_notes`
+*   **Description**: Change notes in a launcher clip (or the arranger's selected clip with arranger: true): all of them, or those matching a pitch and/or a start range in beats. velocity/pressure/chance/release_velocity/velocity_spread 0-1, duration in beats, pan and timbre -1..1, gain 0-1, transpose in semitones (micro-pitch, fractional allowed), muted, repeats (count, 0 = off) with repeat_curve and repeat_velocity_curve (-1..1) and repeat_velocity_end (-1..1). occurrence: play only on the first loop, not the first, when the previous note played, etc. ('off' clears it). recurrence: play on selected loop cycles, recurrence_length cycles (1-8, 0 = off) with recurrence_mask bits (bit 0 = first cycle).
+*   **Parameters**:
+    ```json
+    {
+      "track_index": 0,             // optional; integer >= 0; 0-based track index (see list_tracks)
+      "track_name": "...",          // optional; string; Exact track name (alternative to track_index)
+      "slot_index": 0,              // optional; integer >= 0
+      "arranger": true,             // optional; boolean; Use the clip selected in Bitwig's arranger instead of a launcher slot
+      "release_velocity": 0.5,      // optional; number 0..1
+      "velocity_spread": 0.5,       // optional; number 0..1
+      "occurrence": "off",          // optional; "off" | "always" | "first" | "not_first" | "prev" | "not_prev" | "prev_channel" | "not_prev_channel"
+      "recurrence_length": 0,       // optional; integer 0..8
+      "recurrence_mask": 0,         // optional; integer 0..255
+      "repeat_curve": 0.5,          // optional; number -1..1
+      "repeat_velocity_end": 0.5,   // optional; number -1..1
+      "repeat_velocity_curve": 0.5, // optional; number -1..1
+      "pitch": 0,                   // optional; integer 0..127
+      "from_beats": 1.0,            // optional; number >= 0
+      "to_beats": 1.0,              // optional; number >= 0
+      "velocity": 0.5,              // optional; number 0..1
+      "duration": 1.0,              // optional; number
+      "gain": 0.5,                  // optional; number 0..1
+      "pan": 0.5,                   // optional; number -1..1
+      "timbre": 0.5,                // optional; number -1..1
+      "pressure": 0.5,              // optional; number 0..1
+      "transpose": 1.0,             // optional; number
+      "chance": 0.5,                // optional; number 0..1
+      "muted": true,                // optional; boolean
+      "repeats": 0                  // optional; integer >= 0
+    }
+    ```
+
+#### `write_arranger_notes`
+*   **Description**: Write notes into the clip selected in Bitwig's arranger (the API cannot place or select arranger clips; the user selects one). Same note format as write_notes.
+*   **Parameters**:
+    ```json
+    {
+      "clear_first": true,                                                       // optional; boolean
+      "notes": [ { "start": 1.0, "pitch": 0, "velocity": 1, "duration": 1.0 } ]  // required; array
+    }
+    ```
+
+### Epic 14: Project-wide Control
+
+#### `project_state`
+*   **Description**: Whether any track is soloed, muted or armed, and whether the project has unsaved changes.
+*   **Parameters**: none.
+
+#### `reset_project`
+*   **Description**: Clear every solo, mute and/or arm in the project. A forgotten solo silences all other tracks.
+*   **Parameters**:
+    ```json
+    {
+      "unsolo": true, // optional; boolean
+      "unmute": true, // optional; boolean
+      "unarm": true   // optional; boolean
+    }
+    ```
+
+#### `set_groove`
+*   **Description**: Set the global groove. Values are normalized 0-1; the response shows Bitwig's displayed values.
+*   **Parameters**:
+    ```json
+    {
+      "enabled": true,       // optional; boolean
+      "shuffle_amount": 0.5, // optional; number 0..1
+      "shuffle_rate": 0.5,   // optional; number 0..1
+      "accent_amount": 0.5,  // optional; number 0..1
+      "accent_rate": 0.5,    // optional; number 0..1
+      "accent_phase": 0.5    // optional; number 0..1
+    }
+    ```
+
+#### `set_transport_options`
+*   **Description**: Transport settings beyond play/stop: punch in/out, metronome volume (0-1), pre-roll, automation write mode, launcher overdub, default launch quantization, post-recording action; or run a command (rewind, fast_forward, tap_tempo, continue, record). Enum values are Bitwig's ids; the response shows the current ones.
+*   **Parameters**:
+    ```json
+    {
+      "punch_in": true,                     // optional; boolean
+      "punch_out": true,                    // optional; boolean
+      "metronome_volume": 0.5,              // optional; number 0..1
+      "pre_roll": "...",                    // optional; string
+      "automation_write_mode": "...",       // optional; string
+      "launcher_overdub": true,             // optional; boolean
+      "default_launch_quantization": "...", // optional; string
+      "post_recording_action": "...",       // optional; string
+      "command": "rewind"                   // optional; "rewind" | "fast_forward" | "tap_tempo" | "continue" | "record"
+    }
+    ```
+
+#### `set_cue`
+*   **Description**: Set the cue (headphone) bus volume and its cue/master mix, both 0-1.
+*   **Parameters**:
+    ```json
+    {
+      "volume": 0.5, // optional; number 0..1
+      "mix": 0.5     // optional; number 0..1
+    }
+    ```
+
+### Epic 15: Following the User
+
+#### `get_events`
+*   **Description**: Changes in Bitwig since since_seq: transport (play, record, loop, tempo), project (switch, engine), track (name, mute, solo, arm, volume, pan, added/removed), clip (launcher playback state, clips created/deleted), selection (the user's selected track, device, preset) and parameter (the selected device's knobs as the user turns them). Call without since_seq to get a starting point, then pass next_seq back. wait_ms waits up to that long for the next change (long-poll). Rapid changes to the same thing are merged into the latest value.
+*   **Parameters**:
+    ```json
+    {
+      "since_seq": 0,         // optional; integer >= 0
+      "wait_ms": 0,           // optional; integer 0..30000
+      "types": ["transport"]  // optional; array; Only these kinds of change (default all)
+    }
+    ```
+
+#### `watch`
+*   **Description**: Watch Bitwig for duration_ms (up to 60000) and stream each change as it happens: as an MCP progress notification (when the call carries a progress token) and as a log message (logger 'wigai.events'). Returns every change seen, so clients that do not show notifications still get them.
+*   **Parameters**:
+    ```json
+    {
+      "duration_ms": 100,     // optional; integer 100..60000
+      "types": ["transport"]  // optional; array; Only these kinds of change (default all)
+    }
+    ```
+
 ### Error Handling
 
 All MCP tools use a standardized response envelope.

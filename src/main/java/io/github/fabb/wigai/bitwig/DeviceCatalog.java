@@ -66,10 +66,10 @@ public class DeviceCatalog {
         this.guide = loadGuide(file.resolveSibling("device-guide.json"));
     }
 
-    /** ~/.local/share/wigai-full/device-catalog.json, or $WIGAI_CATALOG_DIR/device-catalog.json. */
+    /** ~/.local/share/wigai/device-catalog.json, or $WIGAI_CATALOG_DIR/device-catalog.json. */
     public static Path defaultFile() {
         String dir = System.getenv("WIGAI_CATALOG_DIR");
-        Path base = dir != null ? Path.of(dir) : Path.of(System.getProperty("user.home"), ".local", "share", "wigai-full");
+        Path base = dir != null ? Path.of(dir) : Path.of(System.getProperty("user.home"), ".local", "share", "wigai");
         return base.resolve("device-catalog.json");
     }
 

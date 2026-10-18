@@ -13,7 +13,7 @@ Two steps:
   docs       Copy each Bitwig device's description from Bitwig's online user guide into the local catalog.
   render     Write the catalog as Markdown.
 
-The catalog lives in ~/.local/share/wigai-full/ (override with WIGAI_CATALOG_DIR). The extension's
+The catalog lives in ~/.local/share/wigai/ (override with WIGAI_CATALOG_DIR). The extension's
 describe_device / list_installed_devices tools read it from there.
 
 usage:
@@ -35,7 +35,7 @@ import sys
 import time
 import urllib.request
 
-CATALOG_DIR = os.environ.get("WIGAI_CATALOG_DIR", os.path.expanduser("~/.local/share/wigai-full"))
+CATALOG_DIR = os.environ.get("WIGAI_CATALOG_DIR", os.path.expanduser("~/.local/share/wigai"))
 CATALOG = os.path.join(CATALOG_DIR, "device-catalog.json")
 MARKDOWN = os.path.join(CATALOG_DIR, "device-catalog.md")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
