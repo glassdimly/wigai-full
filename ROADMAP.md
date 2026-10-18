@@ -2,7 +2,6 @@
 
 What the Bitwig Controller API (v19) can do that WigAI does not expose yet, ordered by how much it helps an agent produce music. The raw method-by-method list is generated into [docs/api-coverage.md](docs/api-coverage.md) by `scripts/api_coverage.py`; this file is the curated version.
 
-
 ## Done
 
 | Area | Tools |
@@ -16,7 +15,7 @@ What the Bitwig Controller API (v19) can do that WigAI does not expose yet, orde
 | Clips and notes | `insert_file`, `create_clip`, `delete_clip`, `write_notes`, `read_notes`, `set_clip` |
 | Listening | `set_engine_active`, `get_levels`, `play_notes` |
 | Arrangement | `list_cue_markers`, `go_to_cue_marker`, `set_arrangement` (loop range, time signature), `rename_scene` |
-| Projects and actions | `next_project`, `previous_project` (from #19), `list_actions`, `invoke_action`, `undo`, `redo` |
+| Actions | `list_actions`, `invoke_action`, `undo`, `redo` |
 | Project-wide | `project_state`, `reset_project` (unsolo/unmute/unarm all), `create_scene`, `set_groove`, `set_transport_options` (punch, metronome volume, pre-roll, automation write mode, launcher overdub, launch quantization, post-recording action, rewind/fast-forward/tap tempo) |
 | Clip management and note editing | `copy_clip`, `move_clip`, `duplicate_clip`, `record_into_slot`, `edit_notes` (velocity, length, gain, pan, timbre, pressure, micro-pitch, chance, mute, repeats), `transform_clip` (transpose, quantize, duplicate content, launch quantization/mode) |
 | Presets and the library | `list_presets` (every .bwpreset on disk, searchable), `preset_file` on `insert_device`, `replace_device` (device, plugin or preset in place), `browser_open` / `browser_state` / `browser_filter` / `browser_commit` / `browser_cancel` (Bitwig's own browser: content types, every filter column, paged results; mode `replace` lists a device's presets) |
