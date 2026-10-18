@@ -4,6 +4,7 @@ import io.github.fabb.wigai.bitwig.BitwigApiFacade;
 import io.github.fabb.wigai.common.error.ErrorCode;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -50,10 +51,8 @@ public class ListDevicesOnTrackTool {
               "additionalProperties": false
             }""";
 
-        var tool = McpSchema.Tool.builder()
-            .name("list_devices_on_track")
+        var tool = McpSchema.Tool.builder("list_devices_on_track", McpJson.MAPPER, schema)
             .description("List all devices on a specific track with detailed information including name, type, and key states (bypassed, selected). Track can be identified by index, name, or as the currently selected track.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

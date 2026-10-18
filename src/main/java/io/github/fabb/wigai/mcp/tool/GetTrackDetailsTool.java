@@ -5,6 +5,7 @@ import io.github.fabb.wigai.common.error.BitwigApiException;
 import io.github.fabb.wigai.common.error.ErrorCode;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -51,10 +52,8 @@ public class GetTrackDetailsTool {
               "additionalProperties": false
             }""";
 
-        var tool = McpSchema.Tool.builder()
-            .name(TOOL_NAME)
+        var tool = McpSchema.Tool.builder(TOOL_NAME, McpJson.MAPPER, schema)
             .description("Retrieve detailed information for a specific track by index, name, or the currently selected track.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

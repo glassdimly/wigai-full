@@ -36,7 +36,7 @@ class EditToolsTest {
 
     private McpSchema.CallToolResult call(String name, Map<String, Object> args) {
         var spec = specs.stream().filter(s -> s.tool().name().equals(name)).findFirst().orElseThrow();
-        return spec.callHandler().apply(null, new McpSchema.CallToolRequest(name, args));
+        return spec.callHandler().apply(null, new McpSchema.CallToolRequest(name, args, null));
     }
 
     @Test
@@ -156,7 +156,7 @@ class EditToolsTest {
     private McpSchema.CallToolResult callContainer(BitwigContainerFacade c, String name, Map<String, Object> args) {
         var spec = EditTools.containerSpecifications(facade, c, new StructuredLogger(mock(Logger.class), "test")).stream()
             .filter(s -> s.tool().name().equals(name)).findFirst().orElseThrow();
-        return spec.callHandler().apply(null, new McpSchema.CallToolRequest(name, args));
+        return spec.callHandler().apply(null, new McpSchema.CallToolRequest(name, args, null));
     }
 
     @Test
@@ -183,7 +183,7 @@ class EditToolsTest {
     private McpSchema.CallToolResult callNamed(List<McpServerFeatures.SyncToolSpecification> all, String name,
                                                Map<String, Object> args) {
         var spec = all.stream().filter(s -> s.tool().name().equals(name)).findFirst().orElseThrow();
-        return spec.callHandler().apply(null, new McpSchema.CallToolRequest(name, args));
+        return spec.callHandler().apply(null, new McpSchema.CallToolRequest(name, args, null));
     }
 
     @Test

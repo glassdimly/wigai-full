@@ -3,6 +3,7 @@ package io.github.fabb.wigai.mcp.tool;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.features.TransportController;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -31,10 +32,8 @@ public class TransportTool {
               "type": "object",
               "properties": {}
             }""";
-        var tool = McpSchema.Tool.builder()
-            .name("transport_start")
+        var tool = McpSchema.Tool.builder("transport_start", McpJson.MAPPER, schema)
             .description("Start Bitwig's transport playbook.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =
@@ -71,10 +70,8 @@ public class TransportTool {
               "type": "object",
               "properties": {}
             }""";
-        var tool = McpSchema.Tool.builder()
-            .name("transport_stop")
+        var tool = McpSchema.Tool.builder("transport_stop", McpJson.MAPPER, schema)
             .description("Stop Bitwig's transport playback.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

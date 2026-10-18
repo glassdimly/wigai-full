@@ -5,7 +5,7 @@ import org.gradle.api.plugins.jvm.JvmTestSuite
 plugins {
     // Apply the Java plugin to add support for Java
     java
-    id("com.gradleup.shadow") version "8.3.0"
+    id("com.gradleup.shadow") version "9.6.1"
 }
 
 group = "io.github.fabb"
@@ -27,8 +27,15 @@ dependencies {
     // MCP Java SDK
     // you can look up the documentation with tool context7
     // example implementation: https://modelcontextprotocol.io/sdk/java/mcp-server
-    implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.11.0"))
-    implementation("io.modelcontextprotocol.sdk:mcp")
+    // 2.x uses pluggable JSON modules; mcp-json-jackson2 keeps WigAI's existing
+    // Jackson 2 usage (annotations, ObjectMapper) working unchanged.
+    implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:2.0.1"))
+    implementation("io.modelcontextprotocol.sdk:mcp-core")
+    implementation("io.modelcontextprotocol.sdk:mcp-json-jackson2")
+    // WigAI uses Jackson 2 directly (tool records, error JSON, device catalog).
+    // Declared explicitly instead of relying on a transitive dependency; 2.21.1
+    // matches the version mcp-json-jackson2 2.0.1 is built against.
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.21.1")
     implementation("jakarta.servlet:jakarta.servlet-api:6.0.0")
     testImplementation("io.modelcontextprotocol.sdk:mcp-test")
 
@@ -51,7 +58,7 @@ java {
 testing {
     suites {
         // Configure the built-in 'test' suite to use JUnit Jupiter
-        val test by getting(JvmTestSuite::class) {
+        named<JvmTestSuite>("test") {
             useJUnitJupiter()
         }
     }
@@ -60,7 +67,11 @@ testing {
 // Configure the Shadow JAR (fat JAR with all dependencies)
 tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
     archiveFileName.set("wigai-all-${project.version}.jar")
-    manifest.inheritFrom(tasks.named<org.gradle.api.tasks.bundling.Jar>("jar").get().manifest)
+    // NOTE: no manifest.inheritFrom(jar) here. Shadow 9+ already links the two
+    // manifests, so inheriting again made the merge self-referential and crashed
+    // with StackOverflowError. The .bwextension task below sets its own manifest
+    // attributes; Bitwig discovers the extension via META-INF/services, not the
+    // manifest.
     mergeServiceFiles() // Merge META-INF/services for SPI
 }
 

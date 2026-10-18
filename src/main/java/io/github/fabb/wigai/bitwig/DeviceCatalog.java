@@ -46,7 +46,7 @@ public class DeviceCatalog {
     private final BitwigEditFacade edit;
     private final Logger logger;
     private final String bitwigVersion;
-    private final ObjectMapper json = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+    private static final ObjectMapper json = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private final Map<String, Map<String, Object>> guide;
     private final Path pluginCacheDir;
 
@@ -153,7 +153,7 @@ public class DeviceCatalog {
             return Map.of();
         }
         try (InputStream in = Files.newInputStream(guideFile)) {
-            Map<String, Object> raw = new ObjectMapper().readValue(in, new TypeReference<LinkedHashMap<String, Object>>() {});
+            Map<String, Object> raw = json.readValue(in, new TypeReference<LinkedHashMap<String, Object>>() {});
             Map<String, Map<String, Object>> out = new LinkedHashMap<>();
             raw.forEach((k, v) -> {
                 if (!k.startsWith("_")) {

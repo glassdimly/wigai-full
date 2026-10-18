@@ -62,6 +62,10 @@ shows them.
   unsaved work, so suggest saving before larger changes.
 - Do not experiment with untried tools in a real song. `scripts/live_test_*.py` run only against an empty
   project for that reason.
+- Track names can shift under you: Bitwig renames a track that still carries its default name ("Inst 1",
+  "Audio 2", ...) to the first device inserted on it. For write operations on default-named tracks, pass
+  `track_index` instead of `track_name`, or rename the track first — once a track has a user-set name,
+  inserting devices leaves it alone.
 
 ## Not possible through Bitwig's API
 

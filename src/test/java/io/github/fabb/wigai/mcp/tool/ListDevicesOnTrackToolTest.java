@@ -73,8 +73,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of("track_index", 1);
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -112,8 +111,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of("track_name", "Drums");
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -138,8 +136,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of("get_selected", true);
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -164,8 +161,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of(); // Empty arguments
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -190,8 +186,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of("track_index", 0);
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -218,8 +213,7 @@ class ListDevicesOnTrackToolTest {
             "track_index", 1,
             "track_name", "Drums"
         );
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -242,8 +236,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of("track_index", -1);
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -266,8 +259,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of("track_name", "");
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -293,8 +285,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of("track_index", 99);
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 
@@ -321,8 +312,7 @@ class ListDevicesOnTrackToolTest {
         McpServerFeatures.SyncToolSpecification spec = ListDevicesOnTrackTool.specification(bitwigApiFacade, structuredLogger);
 
         Map<String, Object> arguments = Map.of("track_index", 1);
-        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder()
-            .name("list_devices_on_track")
+        McpSchema.CallToolRequest request = McpSchema.CallToolRequest.builder("list_devices_on_track")
             .arguments(arguments)
             .build();
 

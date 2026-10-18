@@ -79,7 +79,7 @@ class SceneToolTest {
         McpServerFeatures.SyncToolSpecification specification = SceneTool.launchSceneByIndexSpecification(clipSceneController, structuredLogger);
 
         // Verify tool schema includes validation requirements
-        McpSchema.JsonSchema schema = specification.tool().inputSchema();
+        Map<String, Object> schema = specification.tool().inputSchema();
         assertNotNull(schema);
         String schemaString = schema.toString();
         assertTrue(schemaString.contains("scene_index"));

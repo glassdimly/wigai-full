@@ -4,6 +4,7 @@ import io.github.fabb.wigai.WigAIExtensionDefinition;
 import io.github.fabb.wigai.bitwig.BitwigApiFacade;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -27,10 +28,8 @@ public class StatusTool {
               "type": "object",
               "properties": {}
             }""";
-        var tool = McpSchema.Tool.builder()
-            .name("status")
+        var tool = McpSchema.Tool.builder("status", McpJson.MAPPER, schema)
             .description("Get WigAI operational status, version information, current project name, audio engine status, and detailed transport information.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

@@ -6,6 +6,7 @@ import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.common.validation.ParameterValidator;
 import io.github.fabb.wigai.features.ClipSceneController;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -44,10 +45,8 @@ public class SceneTool {
               "required": ["scene_index"]
             }""";
 
-        var tool = McpSchema.Tool.builder()
-            .name(TOOL_NAME)
+        var tool = McpSchema.Tool.builder(TOOL_NAME, McpJson.MAPPER, schema)
             .description("Launch a scene in Bitwig by providing its zero-based index")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

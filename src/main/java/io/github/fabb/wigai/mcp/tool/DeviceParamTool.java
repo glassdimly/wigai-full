@@ -7,6 +7,7 @@ import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.common.validation.ParameterValidator;
 import io.github.fabb.wigai.features.DeviceController;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -42,10 +43,8 @@ public class DeviceParamTool {
               "type": "object",
               "properties": {}
             }""";
-        var tool = McpSchema.Tool.builder()
-            .name(GET_PARAMETERS_TOOL)
+        var tool = McpSchema.Tool.builder(GET_PARAMETERS_TOOL, McpJson.MAPPER, schema)
             .description("Get the names and values of all addressable parameters of the user-selected device in Bitwig.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =
@@ -106,10 +105,8 @@ public class DeviceParamTool {
               },
               "required": ["parameter_index", "value"]
             }""";
-        var tool = McpSchema.Tool.builder()
-            .name(SET_PARAMETER_TOOL)
+        var tool = McpSchema.Tool.builder(SET_PARAMETER_TOOL, McpJson.MAPPER, schema)
             .description("Set a specific value for a single parameter (by its index) of the user-selected device in Bitwig.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =
@@ -175,10 +172,8 @@ public class DeviceParamTool {
               },
               "required": ["parameters"]
             }""";
-        var tool = McpSchema.Tool.builder()
-            .name(SET_MULTIPLE_PARAMETERS_TOOL)
+        var tool = McpSchema.Tool.builder(SET_MULTIPLE_PARAMETERS_TOOL, McpJson.MAPPER, schema)
             .description("Set multiple parameter values (by index) of the user-selected device in Bitwig simultaneously.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

@@ -17,7 +17,7 @@ import io.github.fabb.wigai.features.ClipSceneController;
 import io.github.fabb.wigai.features.ProjectController;
 import io.modelcontextprotocol.server.*;
 import io.modelcontextprotocol.server.transport.*;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import io.modelcontextprotocol.json.schema.jackson2.DefaultJsonSchemaValidator;
 import org.eclipse.jetty.servlet.ServletHolder;
 import io.github.fabb.wigai.mcp.tool.StatusTool;
 import io.github.fabb.wigai.mcp.tool.TransportTool;
@@ -135,13 +135,11 @@ public class McpServerManager {
      * @throws Exception if servlet creation fails
      */
     public ServletHolder createMcpServlet(String endpointPath) throws Exception {
-        // 1. Instantiate ObjectMapper
-        ObjectMapper objectMapper = new ObjectMapper();
-
-        // 2. Instantiate HttpServletStreamableServerTransportProvider
+        // 1. Instantiate HttpServletStreamableServerTransportProvider with the
+        // shared Jackson-2-backed MCP JSON mapper
         this.transportProvider = HttpServletStreamableServerTransportProvider
             .builder()
-            .objectMapper(objectMapper)
+            .jsonMapper(McpJson.MAPPER)
             .mcpEndpoint(endpointPath)
             .build();
 
@@ -204,9 +202,15 @@ public class McpServerManager {
         tools.addAll(EditTools.containerSpecifications(bitwigEditFacade, bitwigContainerFacade, structuredLogger));
         tools.addAll(EditTools.projectSpecifications(bitwigEditFacade, bitwigSessionFacade, bitwigProjectFacade, structuredLogger));
 
+        // Explicitly supply the JSON mapper and schema validator so the SDK never
+        // falls back to ServiceLoader (SPI) defaults - Bitwig's extension classloader
+        // is not visible to ServiceLoader, which caused ServiceConfigurationError
+        // ("No JsonSchemaValidatorSupplier available") on startup.
         McpServer.sync(this.transportProvider)
             .serverInfo("WigAI", extensionDefinition.getVersion())
             .instructions(AGENT_INSTRUCTIONS)
+            .jsonMapper(McpJson.MAPPER)
+            .jsonSchemaValidator(new DefaultJsonSchemaValidator())
             .capabilities(McpSchema.ServerCapabilities.builder()
                 .tools(true)
                 .logging()

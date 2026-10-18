@@ -9,6 +9,7 @@ import io.github.fabb.wigai.bitwig.DeviceCatalog;
 import io.github.fabb.wigai.common.error.BitwigApiException;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -211,7 +212,7 @@ public class EditTools {
         String schema = "{\"type\": \"object\", \"properties\": {" + properties + "}"
             + (required == null ? "" : ", \"required\": [" + required + "]")
             + ", \"additionalProperties\": false}";
-        var t = McpSchema.Tool.builder().name(name).description(description).inputSchema(schema).build();
+        var t = McpSchema.Tool.builder(name, McpJson.MAPPER, schema).description(description).build();
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =
             (exchange, req) -> McpErrorHandler.executeWithErrorHandling(name, logger,
                 () -> op.run(new Args(req.arguments(), facade, name)));
@@ -222,7 +223,7 @@ public class EditTools {
                                                                          String properties, BitwigEditFacade facade,
                                                                          StructuredLogger logger, StreamingOp op) {
         String schema = "{\"type\": \"object\", \"properties\": {" + properties + "}, \"additionalProperties\": false}";
-        var t = McpSchema.Tool.builder().name(name).description(description).inputSchema(schema).build();
+        var t = McpSchema.Tool.builder(name, McpJson.MAPPER, schema).description(description).build();
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =
             (exchange, req) -> McpErrorHandler.executeWithErrorHandling(name, logger, () -> op.run(
                 new Args(req.arguments(), facade, name), exchange,
@@ -267,7 +268,7 @@ public class EditTools {
                 long deadline = System.currentTimeMillis() + duration;
                 long since = events.buffer().latestSeq();
                 List<Map<String, Object>> seen = new ArrayList<>();
-                var json = new com.fasterxml.jackson.databind.ObjectMapper();
+                var json = McpJson.jacksonMapper();
                 while (System.currentTimeMillis() < deadline) {
                     for (var e : events.buffer().since(since, types, deadline - System.currentTimeMillis())) {
                         since = e.seq();
@@ -277,10 +278,10 @@ public class EditTools {
                         if (exchange != null) {
                             if (token != null) {
                                 exchange.progressNotification(new McpSchema.ProgressNotification(String.valueOf(token),
-                                    (double) seen.size(), null, text));
+                                    (double) seen.size(), null, text, null));
                             }
                             exchange.loggingNotification(new McpSchema.LoggingMessageNotification(
-                                McpSchema.LoggingLevel.INFO, "wigai.events", text));
+                                McpSchema.LoggingLevel.INFO, "wigai.events", text, null));
                         }
                     }
                 }
