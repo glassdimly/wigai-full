@@ -85,4 +85,18 @@ class BitwigSessionFacadeTest {
         BitwigApiException e = assertThrows(BitwigApiException.class, () -> facade.readNotes(0, 0));
         assertEquals(ErrorCode.CLIP_NOT_FOUND, e.getErrorCode());
     }
+
+    @Test
+    void midiMessagesAreEncoded() throws Exception {
+        assertArrayEquals(new int[]{0xB2, 1, 100}, BitwigSessionFacade.midiMessage("cc", 2, 1, 100, null, "op"));
+        assertArrayEquals(new int[]{0xE0, 0, 64}, BitwigSessionFacade.midiMessage("pitch_bend", 0, null, 0, null, "op"));
+        assertArrayEquals(new int[]{0xE0, 0x7F, 0x7F}, BitwigSessionFacade.midiMessage("pitch_bend", 0, null, 8191, null, "op"));
+        assertArrayEquals(new int[]{0xE0, 0, 0}, BitwigSessionFacade.midiMessage("pitch_bend", 0, null, -8192, null, "op"));
+        assertArrayEquals(new int[]{0xC0, 5, 0}, BitwigSessionFacade.midiMessage("program", 0, 5, null, null, "op"));
+        assertArrayEquals(new int[]{0x90, 60, 0}, BitwigSessionFacade.midiMessage("raw", 0, 60, null, 0x90, "op"));
+        assertThrows(BitwigApiException.class, () -> BitwigSessionFacade.midiMessage("cc", 0, 1, 128, null, "op"));
+        assertThrows(BitwigApiException.class, () -> BitwigSessionFacade.midiMessage("pitch_bend", 0, null, 9000, null, "op"));
+        assertThrows(BitwigApiException.class, () -> BitwigSessionFacade.midiMessage("raw", 0, 1, 1, 0xF0, "op"));
+        assertThrows(BitwigApiException.class, () -> BitwigSessionFacade.midiMessage("sysex", 0, 1, 1, null, "op"));
+    }
 }

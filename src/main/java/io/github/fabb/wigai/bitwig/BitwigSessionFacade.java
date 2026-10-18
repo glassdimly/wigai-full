@@ -69,6 +69,7 @@ public class BitwigSessionFacade {
         this.rms = new AtomicIntegerArray(tracks + 1);
         for (int t = 0; t < tracks; t++) {
             observeMeter(trackBank.getItemAt(t), t);
+            trackBank.getItemAt(t).playingNotes().markInterested();
         }
         this.master = host.createMasterTrack(0);
         master.name().markInterested();
@@ -416,6 +417,75 @@ public class BitwigSessionFacade {
             end = Math.max(end, n.startMs() + n.durationMs());
         }
         return Map.of("track", track.name().get(), "notes", notes.size(), "total_ms", end);
+    }
+
+    /** The notes sounding right now on every track that has any (from clips, input or play_notes). */
+    public Map<String, Object> playingNotes() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (int t = 0; t < trackBank.getSizeOfBank(); t++) {
+            Track track = trackBank.getItemAt(t);
+            if (!track.exists().get()) {
+                continue;
+            }
+            PlayingNote[] notes = track.playingNotes().get();
+            if (notes == null || notes.length == 0) {
+                continue;
+            }
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (PlayingNote n : notes) {
+                list.add(Map.of("pitch", n.pitch(), "velocity", n.velocity()));
+            }
+            out.add(Map.of("track_index", t, "track", track.name().get(), "notes", list));
+        }
+        return Map.of("playing", transport.isPlaying().get(), "tracks", out);
+    }
+
+    /**
+     * Sends a MIDI message into a track's instrument: cc (number, value 0-127), pitch_bend (value -8192..8191),
+     * program (number), aftertouch (value), or raw (status, number = data1, value = data2). channel is 0-15.
+     */
+    public Map<String, Object> sendMidi(int trackIndex, String type, int channel, Integer number, Integer value,
+                                        Integer status) throws BitwigApiException {
+        final String operation = "sendMidi";
+        if (channel < 0 || channel > 15) {
+            throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation, "channel must be 0-15");
+        }
+        int[] msg = midiMessage(type, channel, number, value, status, operation);
+        Track track = trackBank.getItemAt(trackIndex);
+        track.sendMidi(msg[0], msg[1], msg[2]);
+        return Map.of("track", track.name().get(), "status", msg[0], "data1", msg[1], "data2", msg[2]);
+    }
+
+    static int[] midiMessage(String type, int channel, Integer number, Integer value, Integer status, String operation)
+            throws BitwigApiException {
+        String t = type == null ? "" : type.toLowerCase(Locale.ROOT);
+        return switch (t) {
+            case "cc" -> new int[]{0xB0 | channel, data(number, "number", operation), data(value, "value", operation)};
+            case "program" -> new int[]{0xC0 | channel, data(number, "number", operation), 0};
+            case "aftertouch" -> new int[]{0xD0 | channel, data(value, "value", operation), 0};
+            case "pitch_bend" -> {
+                if (value == null || value < -8192 || value > 8191) {
+                    throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation, "pitch_bend value must be -8192..8191");
+                }
+                int v = value + 8192;
+                yield new int[]{0xE0 | channel, v & 0x7F, (v >> 7) & 0x7F};
+            }
+            case "raw" -> {
+                if (status == null || status < 0x80 || status > 0xEF) {
+                    throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation, "raw needs a channel-voice status 0x80-0xEF");
+                }
+                yield new int[]{status, data(number, "number", operation), value == null ? 0 : data(value, "value", operation)};
+            }
+            default -> throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                "type must be cc, pitch_bend, program, aftertouch or raw");
+        };
+    }
+
+    private static int data(Integer v, String name, String operation) throws BitwigApiException {
+        if (v == null || v < 0 || v > 127) {
+            throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation, name + " must be 0-127");
+        }
+        return v;
     }
 
     // ========================================

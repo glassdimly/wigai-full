@@ -85,6 +85,7 @@ public class BitwigEditFacade {
         this.secondary = new ChainCursor(editTrack.createCursorDevice("WIGAI_EDIT_DEVICE_2", "WigAI edit device 2", 0,
             CursorDeviceFollowMode.FIRST_DEVICE));
 
+        application.panelLayout().markInterested();
         editTrack.position().markInterested();
         editTrack.name().markInterested();
         editDevice.exists().markInterested();
@@ -98,6 +99,8 @@ public class BitwigEditFacade {
             p.name().markInterested();
             p.value().markInterested();
             p.displayedValue().markInterested();
+            p.modulatedValue().markInterested();
+            p.modulatedValue().displayedValue().markInterested();
         }
         editClip.exists().markInterested();
         editClip.getLoopLength().markInterested();
@@ -1047,6 +1050,12 @@ public class BitwigEditFacade {
             m.put("name", p.name().get());
             m.put("value", p.value().get());
             m.put("display", p.displayedValue().get());
+            // Modulators (LFOs, envelopes, macros) move the effective value away from the knob position.
+            double modulated = p.modulatedValue().get();
+            if (Math.abs(modulated - p.value().get()) > 1e-4) {
+                m.put("modulated_value", modulated);
+                m.put("modulated_display", p.modulatedValue().displayedValue().get());
+            }
             params.add(m);
         }
         return params;
@@ -1317,6 +1326,50 @@ public class BitwigEditFacade {
 
     Track trackAt(int trackIndex) {
         return trackBank.getItemAt(trackIndex);
+    }
+
+    /**
+     * Brings things into view in Bitwig's window: a panel layout (ARRANGE, MIX, EDIT), a track, a launcher clip in
+     * the editor, or a device. This changes what the user sees and selects; it is for working alongside them.
+     */
+    public Map<String, Object> show(String panelLayout, Integer trackIndex, Integer slotIndex, Integer deviceIndex)
+            throws BitwigApiException {
+        final String operation = "show";
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (panelLayout != null) {
+            String layout = panelLayout.toUpperCase(Locale.ROOT);
+            if (!List.of("ARRANGE", "MIX", "EDIT").contains(layout)) {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation, "panel_layout must be ARRANGE, MIX or EDIT");
+            }
+            application.setPanelLayout(layout);
+            waitFor(() -> layout.equalsIgnoreCase(application.panelLayout().get()));
+            m.put("panel_layout", application.panelLayout().get());
+        }
+        if (trackIndex != null) {
+            Track track = trackBank.getItemAt(trackIndex);
+            track.selectInMixer();
+            track.makeVisibleInArranger();
+            track.makeVisibleInMixer();
+            m.put("track", track.name().get());
+            if (slotIndex != null) {
+                ClipLauncherSlot slot = slotAt(track, slotIndex, operation);
+                if (!slot.hasContent().get()) {
+                    throw new BitwigApiException(ErrorCode.CLIP_NOT_FOUND, operation, "Slot " + slotIndex + " is empty");
+                }
+                slot.select();
+                slot.showInEditor();
+                m.put("clip_slot", slotIndex);
+            }
+            if (deviceIndex != null) {
+                Device device = resolveDevice(trackIndex, deviceIndex, operation);
+                device.selectInEditor();
+                m.put("device", device.name().get());
+            }
+        } else if (slotIndex != null || deviceIndex != null) {
+            throw new BitwigApiException(ErrorCode.MISSING_REQUIRED_PARAMETER, operation, "A clip or device needs its track");
+        }
+        settle();
+        return m;
     }
 
     /** The private cursor track other facades attach their own cursor devices to (during init). */
