@@ -35,6 +35,10 @@ public class BitwigProjectFacade {
         project.hasMutedTracks().markInterested();
         project.hasArmedTracks().markInterested();
         project.isModified().markInterested();
+        project.cueVolume().value().markInterested();
+        project.cueVolume().displayedValue().markInterested();
+        project.cueMix().value().markInterested();
+        project.cueMix().displayedValue().markInterested();
         for (Parameter p : new Parameter[]{groove.getEnabled(), groove.getShuffleAmount(), groove.getShuffleRate(),
                 groove.getAccentAmount(), groove.getAccentRate(), groove.getAccentPhase()}) {
             p.value().markInterested();
@@ -70,6 +74,10 @@ public class BitwigProjectFacade {
         m.put("has_muted_tracks", project.hasMutedTracks().get());
         m.put("has_armed_tracks", project.hasArmedTracks().get());
         m.put("modified", project.isModified().get());
+        m.put("cue_volume", project.cueVolume().displayedValue().get());
+        m.put("cue_mix", project.cueMix().displayedValue().get());
+        m.put("cue_volume_raw", project.cueVolume().value().get());
+        m.put("cue_mix_raw", project.cueMix().value().get());
         return m;
     }
 
@@ -92,6 +100,18 @@ public class BitwigProjectFacade {
         project.createScene();
         sleep(200);
         return Map.of("action", "scene_created");
+    }
+
+    /** Cue (headphone) bus: volume and the cue/master mix, both 0-1. */
+    public Map<String, Object> setCue(Double volume, Double mix) {
+        if (volume != null) {
+            project.cueVolume().value().setImmediately(volume);
+        }
+        if (mix != null) {
+            project.cueMix().value().setImmediately(mix);
+        }
+        sleep(150);
+        return projectState();
     }
 
     // ========================================

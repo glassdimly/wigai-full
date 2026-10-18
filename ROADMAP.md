@@ -22,23 +22,19 @@ Everything here is meant to go upstream to [fabb/WigAI](https://github.com/fabb/
 | Clip management and note editing | `copy_clip`, `move_clip`, `duplicate_clip`, `record_into_slot`, `edit_notes` (velocity, length, gain, pan, timbre, pressure, micro-pitch, chance, mute, repeats), `transform_clip` (transpose, quantize, duplicate content, launch quantization/mode) |
 | Presets and the library | `list_presets` (every .bwpreset on disk, searchable), `preset_file` on `insert_device`, `replace_device` (device, plugin or preset in place), `browser_open` / `browser_state` / `browser_filter` / `browser_commit` / `browser_cancel` (Bitwig's own browser: content types, every filter column, paged results; mode `replace` lists a device's presets) |
 | Drum Machine and layers | `list_drum_pads`, `set_drum_pad` (name, volume, pan, mute, solo), `insert_into_drum_pad` (device, plugin, preset, or a sample, which becomes a Sampler), `clear_drum_pads`, `list_layers`, `set_layer`; device lists now show each device's loaded preset |
+| Note expressions, clip settings, scenes, arranger clips | `edit_notes` adds release velocity, velocity spread, occurrence, recurrence and repeat curves; `read_notes` reports every non-default expression; `set_clip` adds loop on/off, play start/stop, shuffle, accent, color; `arranger: true` on `read_notes` / `edit_notes` / `set_clip` / `transform_clip` and `write_arranger_notes` work on the arranger clip the user selected; `set_scene`, `delete_scene`, `duplicate_scene`, `copy_scene`, `move_scene`; `set_cue` (cue volume and mix); `set_track` adds group expand/collapse and crossfade side |
 | Device knowledge | `list_installed_devices`, `describe_device` (on-demand control scans with history), `fetch_device_docs`, `catalog_status` |
 
 ## Next: high value
 
-1. **Note editing leftovers.** Occurrence/recurrence conditions, velocity spread, release velocity; clip shuffle and accent (`Clip.getShuffle/getAccent`).
-2. **Arranger clip editing.** `createArrangerCursorClip` edits the notes of the arranger clip selected in the UI (placement itself is not possible, see below).
-3. **Scenes.** `createSceneFromPlayingLauncherClips`, copy/move/delete scenes.
-4. **Track order and groups.** Expand/collapse groups (`isGroupExpanded`), crossfade mode. Moving or copying tracks is blocked: Bitwig 6.1.3 accepts `InsertionPoint.moveTracks/copyTracks` from an extension and silently does nothing, on the request thread and on the control thread alike (tested 2026-10-17). `duplicate_track` does work for copies.
-5. **Cue mix.** Cue volume/mix for headphone monitoring.
+1. **What is modulated.** Read macros and modulation sources (`Device.getMacro`, `getModulationSource`) so an agent can see why a knob moves.
+2. **Playing notes and raw MIDI.** `Channel.playingNotes` (which notes sound right now), `Track.sendMidi`.
+3. **Arpeggiator settings** exposed by the API (`Arpeggiator` on note inputs).
 
 ## Later
 
-10. **What is modulated.** Read macros and modulation sources (`Device.getMacro`, `getModulationSource`) so an agent can see why a knob moves.
-11. **Playing notes and raw MIDI.** `Channel.playingNotes` (which notes sound right now), `Track.sendMidi`.
-12. **UI focus.** Panel layouts (Arrange/Mix/Edit), show a clip or device in the editor (`showInEditor`, `selectInEditor`), make a track visible. Most of this is already reachable through `invoke_action`.
-13. **Live state streaming** ([fabb/WigAI#3](https://github.com/fabb/WigAI/issues/3)). Push playhead position, levels and parameter changes as MCP notifications instead of polling.
-14. **Device catalog tools.** `describe_device` / `list_installed_devices` backed by the catalog from `scripts/device_catalog.py` (see [docs/DEVICE-KNOWLEDGE.md](docs/DEVICE-KNOWLEDGE.md)).
+4. **UI focus.** Panel layouts (Arrange/Mix/Edit), show a clip or device in the editor (`showInEditor`, `selectInEditor`), make a track visible. Most of this is already reachable through `invoke_action`.
+5. **Live state streaming** ([fabb/WigAI#3](https://github.com/fabb/WigAI/issues/3)). Push playhead position, levels and parameter changes as MCP notifications instead of polling.
 
 ## Not possible with the Controller API
 
@@ -50,6 +46,9 @@ These need changes in Bitwig itself; tools should tell the user to do them by ha
 - **Writing automation points.** Only by recording parameter changes with automation write enabled.
 - **Parameters that are not on a remote-control page** ([fabb/WigAI#15](https://github.com/fabb/WigAI/issues/15)).
 - **Rendering, bouncing or exporting audio**, other than through application actions where Bitwig offers one.
+- **Moving or copying tracks.** Bitwig 6.1.3 accepts `InsertionPoint.moveTracks/copyTracks` from an extension and silently does nothing, on the request thread and on the control thread alike (tested 2026-10-17). `duplicate_track` does work for copies.
 - **Opening a project from disk.** Only cycling through projects that are already open.
-- **Adding, removing or duplicating layers, and emptying a drum pad.** `DeviceLayer.duplicate()` / `deleteObject()`, `DrumPad.deleteObject()` and `host.duplicateObjects(layer)` are silently ignored in Bitwig 6.1.3. **`host.deleteObjects(drumPad)` crashes Bitwig** (ClassCastException on its GUI thread), taking every open project with it; never call it. Delete the devices on a pad or layer with `delete_device` and chain `layer:N` instead.
+- **Adding, removing or duplicating layers, and emptying a drum pad.** `DeviceLayer.duplicate()` / `duplicateObject()` / `deleteObject()`, `DrumPad.deleteObject()` and `host.duplicateObjects(layer)` are silently ignored in Bitwig 6.1.3. **`host.deleteObjects(drumPad)` crashes Bitwig** (ClassCastException on its GUI thread), taking every open project with it; never call it. Delete the devices on a pad or layer with `delete_device` and chain `layer:N` instead.
+- **Capturing playing clips into a scene.** `Project.createSceneFromPlayingLauncherClips()` and the "Create Scene From Playing Launcher Clips" action do nothing when called from an extension, even with clips playing (tested 2026-10-17).
+- **Selecting an arranger clip.** The arranger cursor clip follows the user's selection only; tools with `arranger: true` work on whatever clip the user clicked.
 - **Reading the device of a packaged preset from disk.** Presets from installed packages are encrypted; `browser_open` with mode `replace` shows which presets belong to a device.

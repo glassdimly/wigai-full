@@ -3,6 +3,8 @@ package io.github.fabb.wigai.mcp.tool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.fabb.wigai.bitwig.BitwigContainerFacade;
 import io.github.fabb.wigai.bitwig.BitwigEditFacade;
+import io.github.fabb.wigai.bitwig.BitwigProjectFacade;
+import io.github.fabb.wigai.bitwig.BitwigSessionFacade;
 import io.github.fabb.wigai.common.Logger;
 import io.github.fabb.wigai.common.error.BitwigApiException;
 import io.github.fabb.wigai.common.error.ErrorCode;
@@ -176,5 +178,45 @@ class EditToolsTest {
 
         assertTrue(callContainer(c, "browser_filter", Map.of("filters", Map.of("category", 5))).isError());
         assertTrue(callContainer(c, "set_drum_pad", Map.of("track_index", 0, "device_index", 0)).isError());
+    }
+
+    private McpSchema.CallToolResult callNamed(List<McpServerFeatures.SyncToolSpecification> all, String name,
+                                               Map<String, Object> args) {
+        var spec = all.stream().filter(s -> s.tool().name().equals(name)).findFirst().orElseThrow();
+        return spec.callHandler().apply(null, new McpSchema.CallToolRequest(name, args));
+    }
+
+    @Test
+    void arrangerClipToolsSkipTrackResolution() throws Exception {
+        BitwigSessionFacade s = mock(BitwigSessionFacade.class);
+        var log = new StructuredLogger(mock(Logger.class), "test");
+        var all = new java.util.ArrayList<>(EditTools.sessionSpecifications(facade, s, log));
+        all.addAll(EditTools.projectSpecifications(facade, s, mock(BitwigProjectFacade.class), log));
+
+        when(s.readNotes(null, null, true)).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(callNamed(all, "read_notes", Map.of("arranger", true)));
+        verify(s).readNotes(null, null, true);
+        verify(facade, never()).resolveTrackIndex(any(), any(), anyString());
+
+        when(s.editNotes(eq(null), eq(null), eq(true), any(), any())).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(callNamed(all, "edit_notes", Map.of("arranger", true,
+            "occurrence", "not_first", "recurrence_length", 4, "recurrence_mask", 5, "release_velocity", 0.8)));
+        var changes = org.mockito.ArgumentCaptor.forClass(BitwigSessionFacade.NoteChanges.class);
+        verify(s).editNotes(eq(null), eq(null), eq(true), any(), changes.capture());
+        assertEquals("not_first", changes.getValue().occurrence());
+        assertEquals(4, changes.getValue().recurrenceLength());
+        assertEquals(5, changes.getValue().recurrenceMask());
+        assertEquals(0.8, changes.getValue().releaseVelocity());
+    }
+
+    @Test
+    void setClipBuildsSettings() throws Exception {
+        BitwigSessionFacade s = mock(BitwigSessionFacade.class);
+        var all = EditTools.sessionSpecifications(facade, s, new StructuredLogger(mock(Logger.class), "test"));
+        when(facade.resolveTrackIndex(2, null, "set_clip")).thenReturn(2);
+        when(s.setClip(eq(2), eq(0), eq(false), any())).thenReturn(Map.of());
+        McpResponseTestUtils.validateSuccessResponse(callNamed(all, "set_clip", Map.of("track_index", 2, "slot_index", 0,
+            "shuffle", true, "accent", 0.7, "loop_enabled", false)));
+        verify(s).setClip(2, 0, false, new BitwigSessionFacade.ClipSettings(null, null, null, false, null, null, true, 0.7, null));
     }
 }
