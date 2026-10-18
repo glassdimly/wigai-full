@@ -57,7 +57,7 @@ public class BitwigEditFacade {
     private final ChainCursor secondary;
     private final CursorRemoteControlsPage editPage;
     private final Clip editClip;
-    private final Map<String, UUID> bitwigDevices;
+    private final Map<String, BitwigDevice> bitwigDevices;
     private final long timeoutMs;
 
     public BitwigEditFacade(ControllerHost host, Logger logger, Application application, Transport transport,
@@ -243,7 +243,11 @@ public class BitwigEditFacade {
     }
 
     boolean waitFor(BooleanSupplier condition) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        return waitFor(condition, timeoutMs);
+    }
+
+    boolean waitFor(BooleanSupplier condition, long limitMs) {
+        long deadline = System.currentTimeMillis() + Math.min(limitMs, timeoutMs);
         while (System.currentTimeMillis() < deadline) {
             if (condition.getAsBoolean()) {
                 return true;
@@ -752,6 +756,24 @@ public class BitwigEditFacade {
         return new ArrayList<>(bitwigDevices.keySet());
     }
 
+    /** Built-in devices with type and category, optionally filtered by a substring of name, type or category. */
+    public List<Map<String, Object>> listBitwigDevices(String filter) {
+        String f = filter == null ? null : filter.toLowerCase(Locale.ROOT);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (BitwigDevice d : bitwigDevices.values()) {
+            if (f != null && !(d.name() + " " + d.type() + " " + d.category()).toLowerCase(Locale.ROOT).contains(f)) {
+                continue;
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", d.name());
+            m.put("type", d.type());
+            m.put("category", d.category());
+            out.add(m);
+        }
+        out.sort((a, b) -> String.valueOf(a.get("name")).compareToIgnoreCase(String.valueOf(b.get("name"))));
+        return out;
+    }
+
     private InsertionPoint insertionPoint(int trackIndex, String position, Integer afterDeviceIndex, String operation)
             throws BitwigApiException {
         Track track = trackBank.getItemAt(trackIndex);
@@ -805,9 +827,9 @@ public class BitwigEditFacade {
     }
 
     UUID findBitwigDevice(String name) {
-        for (Map.Entry<String, UUID> e : bitwigDevices.entrySet()) {
+        for (Map.Entry<String, BitwigDevice> e : bitwigDevices.entrySet()) {
             if (e.getKey().equalsIgnoreCase(name.trim())) {
-                return e.getValue();
+                return e.getValue().id();
             }
         }
         return null;
@@ -1006,6 +1028,16 @@ public class BitwigEditFacade {
 
     public Map<String, Object> setDeviceParameters(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
                                                    List<ParamAssignment> assignments) throws BitwigApiException {
+        return setDeviceParameters(trackIndex, deviceIndex, chain, chainDeviceIndex, assignments, true);
+    }
+
+    /**
+     * With verify=false values are written without waiting for each to be confirmed (one short settle per
+     * page instead), for bulk writes such as sweeping every control of a device.
+     */
+    public Map<String, Object> setDeviceParameters(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
+                                                   List<ParamAssignment> assignments, boolean verify)
+            throws BitwigApiException {
         final String operation = "setDeviceParameters";
         focusTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
         String[] pageNames = editPage.pageNames().get();
@@ -1053,10 +1085,15 @@ public class BitwigEditFacade {
             }
             RemoteControl t = target;
             // Bitwig ignores set() on remote controls from extensions with no bound hardware; setImmediately() applies.
+            double before = t.value().get();
             t.value().setImmediately(a.value());
-            boolean applied = waitFor(() -> Math.abs(t.value().get() - a.value()) < 1e-3);
-            settle();
-            r.put("applied", applied);
+            if (verify) {
+                // Stepped controls snap to the nearest step, so "applied" also accepts any change.
+                boolean applied = waitFor(() -> Math.abs(t.value().get() - a.value()) < 1e-3
+                    || Math.abs(t.value().get() - before) > 1e-6, 400);
+                settle();
+                r.put("applied", applied || Math.abs(before - a.value()) < 1e-3);
+            }
             r.put("status", "success");
             r.put("page", foundPage);
             r.put("name", t.name().get());
@@ -1209,6 +1246,10 @@ public class BitwigEditFacade {
         return application;
     }
 
+    public boolean isPlaying() {
+        return transport.isPlaying().get();
+    }
+
     public List<Map<String, Object>> listActions(String filter) {
         List<Map<String, Object>> out = new ArrayList<>();
         String f = filter == null ? null : filter.toLowerCase(Locale.ROOT);
@@ -1251,26 +1292,98 @@ public class BitwigEditFacade {
     // Device list resource
     // ========================================
 
-    /** Loads "Name$uuid" lines (Bitwig native device UUIDs) from the bundled resource. */
-    private static Map<String, UUID> loadBitwigDevices() {
-        Map<String, UUID> map = new LinkedHashMap<>();
+    /** A Bitwig built-in device: name, UUID, and (when read from Bitwig's library) type and category. */
+    public record BitwigDevice(String name, UUID id, String type, String category) {}
+
+    /**
+     * Bitwig's built-in devices. Read from Bitwig's own library (Library/device-settings under the
+     * installationRoot Bitwig passes to the JVM) so every device of the running version is insertable,
+     * falling back to the bundled list when that is unavailable.
+     */
+    private static Map<String, BitwigDevice> loadBitwigDevices() {
+        Map<String, BitwigDevice> map = new LinkedHashMap<>();
         try (InputStream in = BitwigEditFacade.class.getResourceAsStream(Constants.DEVICE_LIST_RESOURCE)) {
-            if (in == null) {
-                return map;
-            }
-            BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                int sep = line.lastIndexOf('$');
-                if (line.isEmpty() || line.startsWith("#") || sep < 0) {
-                    continue;
+            if (in != null) {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    line = line.trim();
+                    int sep = line.lastIndexOf('$');
+                    if (line.isEmpty() || line.startsWith("#") || sep < 0) {
+                        continue;
+                    }
+                    String name = line.substring(0, sep);
+                    map.put(name, new BitwigDevice(name, UUID.fromString(line.substring(sep + 1)), "", ""));
                 }
-                map.put(line.substring(0, sep), UUID.fromString(line.substring(sep + 1)));
             }
         } catch (Exception e) {
-            // Leave the map empty; insert by CLAP/VST3 id still works.
+            // Keep whatever was read; the library scan below may still fill the map.
+        }
+        String root = System.getProperty("installationRoot");
+        if (root != null) {
+            map.putAll(readLibrary(Path.of(root, "Library", "device-settings")));
         }
         return map;
+    }
+
+    static Map<String, BitwigDevice> readLibrary(Path deviceSettings) {
+        Map<String, BitwigDevice> map = new LinkedHashMap<>();
+        if (!Files.isDirectory(deviceSettings)) {
+            return map;
+        }
+        try (var dirs = Files.list(deviceSettings)) {
+            for (Path dir : (Iterable<Path>) dirs::iterator) {
+                Path preset = dir.resolve("Default.bwpreset");
+                if (!Files.isRegularFile(preset)) {
+                    continue;
+                }
+                byte[] head;
+                try (InputStream in = Files.newInputStream(preset)) {
+                    head = in.readNBytes(4096);
+                }
+                String id = presetMeta(head, "device_id");
+                String name = presetMeta(head, "device_name");
+                if (id == null || name == null) {
+                    continue;
+                }
+                String type = switch (String.valueOf(presetMeta(head, "device_type"))) {
+                    case "audio_to_audio" -> "audio effect";
+                    case "note_to_audio" -> "instrument";
+                    case "note_to_note" -> "note effect";
+                    default -> "";
+                };
+                String category = presetMeta(head, "device_category");
+                map.put(name, new BitwigDevice(name, UUID.fromString(id), type, category == null ? "" : category));
+            }
+        } catch (Exception e) {
+            // An unreadable library leaves the bundled list in place.
+        }
+        return map;
+    }
+
+    /** Preset metadata: a 4-byte big-endian length and the key, then 0x08 and a length-prefixed UTF-8 value. */
+    static String presetMeta(byte[] head, String key) {
+        byte[] k = key.getBytes(StandardCharsets.UTF_8);
+        outer:
+        for (int i = 0; i + 4 + k.length + 5 <= head.length; i++) {
+            if (head[i] != 0 || head[i + 1] != 0 || head[i + 2] != 0 || head[i + 3] != k.length) {
+                continue;
+            }
+            for (int j = 0; j < k.length; j++) {
+                if (head[i + 4 + j] != k[j]) {
+                    continue outer;
+                }
+            }
+            int v = i + 4 + k.length;
+            if (head[v] != 0x08) {
+                return null;
+            }
+            int n = ((head[v + 1] & 0xff) << 24) | ((head[v + 2] & 0xff) << 16) | ((head[v + 3] & 0xff) << 8) | (head[v + 4] & 0xff);
+            if (n < 0 || v + 5 + n > head.length) {
+                return null;
+            }
+            return new String(head, v + 5, n, StandardCharsets.UTF_8);
+        }
+        return null;
     }
 }
