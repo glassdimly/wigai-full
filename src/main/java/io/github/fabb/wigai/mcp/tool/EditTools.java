@@ -36,6 +36,9 @@ public class EditTools {
                 "chain": {"type": "string", "description": "A chain inside the device, e.g. 'Modulator' or 'Carrier' (Vocoder), 'FX' (FX devices), or 'layer:0' / 'layer:Name' (layer devices). See get_device_chains."},
                 "chain_device_index": {"type": "integer", "minimum": 0, "description": "Device index within that chain (required with chain)"}""";
 
+    private static final String ARRANGER_PROP = """
+                "arranger": {"type": "boolean", "description": "Use the clip selected in Bitwig's arranger instead of a launcher slot"}""";
+
     private static final String POSITION_PROPS = """
                 "position": {"type": "string", "enum": ["start", "end"], "description": "Where in the chain to insert (default end)"},
                 "after_device_index": {"type": "integer", "minimum": 0, "description": "Insert directly after this device instead"}""";
@@ -159,6 +162,15 @@ public class EditTools {
             return out;
         }
 
+        /** The track for a launcher clip, or null when the arranger's selected clip is meant. */
+        Integer clipTrack() throws BitwigApiException {
+            return arranger() ? null : track();
+        }
+
+        boolean arranger() {
+            return Boolean.TRUE.equals(bool("arranger"));
+        }
+
         int track() throws BitwigApiException {
             return facade.resolveTrackIndex(integer("track_index"), string("track_name"), operation);
         }
@@ -217,11 +229,13 @@ public class EditTools {
                 "arm": {"type": "boolean"},
                 "activated": {"type": "boolean"},
                 "monitor_mode": {"type": "string", "enum": ["ON", "OFF", "AUTO"]},
-                "color": {"type": "string", "description": "#RRGGBB"}""",
+                "color": {"type": "string", "description": "#RRGGBB"},
+                "group_expanded": {"type": "boolean", "description": "Expand or collapse a group track"},
+                "crossfade_mode": {"type": "string", "enum": ["A", "B", "AB"]}""",
             null, f, log,
             a -> f.setTrackProperties(a.track(), a.string("name"), a.number("volume"), a.number("volume_db"),
                 a.number("pan"), a.bool("mute"), a.bool("solo"), a.bool("arm"), a.bool("activated"),
-                a.string("monitor_mode"), a.string("color"))));
+                a.string("monitor_mode"), a.string("color"), a.bool("group_expanded"), a.string("crossfade_mode"))));
 
         specs.add(tool("set_send", "Set a track's send level (0-1) and/or enable it.",
             TRACK_PROPS + """
@@ -540,12 +554,26 @@ public class EditTools {
         specs.add(tool("record_into_slot", "Start recording into a launcher slot (the track must be armed).", slotProps, "\"slot_index\"", f, log,
             a -> p.recordIntoSlot(a.track(), a.requiredInt("slot_index"))));
 
+        String clipProps = slotProps + ",\n" + ARRANGER_PROP;
         specs.add(tool("edit_notes",
-            "Change notes in a launcher clip: all of them, or those matching a pitch and/or a start range in beats. "
-                + "velocity/pressure/chance 0-1, duration in beats, pan and timbre -1..1, gain 0-1, transpose in semitones "
-                + "(micro-pitch, fractional allowed), muted, repeats (count, 0 = off).",
-            slotProps + """
+            "Change notes in a launcher clip (or the arranger's selected clip with arranger: true): all of them, or "
+                + "those matching a pitch and/or a start range in beats. velocity/pressure/chance/release_velocity/"
+                + "velocity_spread 0-1, duration in beats, pan and timbre -1..1, gain 0-1, transpose in semitones "
+                + "(micro-pitch, fractional allowed), muted, repeats (count, 0 = off) with repeat_curve and "
+                + "repeat_velocity_curve (-1..1) and repeat_velocity_end (-1..1). occurrence: play only on the first "
+                + "loop, not the first, when the previous note played, etc. ('off' clears it). recurrence: play on "
+                + "selected loop cycles, recurrence_length cycles (1-8, 0 = off) with recurrence_mask bits (bit 0 = "
+                + "first cycle).",
+            clipProps + """
                 ,
+                "release_velocity": {"type": "number", "minimum": 0, "maximum": 1},
+                "velocity_spread": {"type": "number", "minimum": 0, "maximum": 1},
+                "occurrence": {"type": "string", "enum": ["off", "always", "first", "not_first", "prev", "not_prev", "prev_channel", "not_prev_channel"]},
+                "recurrence_length": {"type": "integer", "minimum": 0, "maximum": 8},
+                "recurrence_mask": {"type": "integer", "minimum": 0, "maximum": 255},
+                "repeat_curve": {"type": "number", "minimum": -1, "maximum": 1},
+                "repeat_velocity_end": {"type": "number", "minimum": -1, "maximum": 1},
+                "repeat_velocity_curve": {"type": "number", "minimum": -1, "maximum": 1},
                 "pitch": {"type": "integer", "minimum": 0, "maximum": 127},
                 "from_beats": {"type": "number", "minimum": 0},
                 "to_beats": {"type": "number", "minimum": 0},
@@ -559,26 +587,80 @@ public class EditTools {
                 "chance": {"type": "number", "minimum": 0, "maximum": 1},
                 "muted": {"type": "boolean"},
                 "repeats": {"type": "integer", "minimum": 0}""",
-            "\"slot_index\"", f, log,
-            a -> s.editNotes(a.track(), a.requiredInt("slot_index"),
+            null, f, log,
+            a -> s.editNotes(a.clipTrack(), a.integer("slot_index"), a.arranger(),
                 new BitwigSessionFacade.NoteFilter(a.integer("pitch"), a.number("from_beats"), a.number("to_beats")),
                 new BitwigSessionFacade.NoteChanges(a.number("velocity"), a.number("duration"), a.number("gain"),
                     a.number("pan"), a.number("timbre"), a.number("pressure"), a.number("transpose"), a.number("chance"),
-                    a.bool("muted"), a.integer("repeats")))));
+                    a.bool("muted"), a.integer("repeats"), a.number("release_velocity"), a.number("velocity_spread"),
+                    a.string("occurrence"), a.integer("recurrence_length"), a.integer("recurrence_mask"),
+                    a.number("repeat_curve"), a.number("repeat_velocity_end"), a.number("repeat_velocity_curve")))));
 
         specs.add(tool("transform_clip",
-            "Whole-clip operations on a launcher clip: transpose (semitones), quantize (0-1 strength), duplicate its content, "
-                + "set launch quantization and launch mode (Bitwig enum ids; the response shows the current ones).",
-            slotProps + """
+            "Whole-clip operations on a launcher clip (or the arranger's selected clip with arranger: true): transpose "
+                + "(semitones), quantize (0-1 strength), duplicate its content, set launch quantization and launch mode "
+                + "(launcher only; Bitwig enum ids, the response shows the current ones).",
+            clipProps + """
                 ,
                 "transpose": {"type": "integer"},
                 "quantize": {"type": "number", "minimum": 0, "maximum": 1},
                 "duplicate_content": {"type": "boolean"},
                 "launch_quantization": {"type": "string"},
                 "launch_mode": {"type": "string"}""",
-            "\"slot_index\"", f, log,
-            a -> s.transformClip(a.track(), a.requiredInt("slot_index"), a.integer("transpose"), a.number("quantize"),
-                a.bool("duplicate_content"), a.string("launch_quantization"), a.string("launch_mode"))));
+            null, f, log,
+            a -> s.transformClip(a.clipTrack(), a.integer("slot_index"), a.arranger(), a.integer("transpose"),
+                a.number("quantize"), a.bool("duplicate_content"), a.string("launch_quantization"), a.string("launch_mode"))));
+
+        specs.add(tool("write_arranger_notes",
+            "Write notes into the clip selected in Bitwig's arranger (the API cannot place or select arranger clips; "
+                + "the user selects one). Same note format as write_notes.",
+            """
+                "clear_first": {"type": "boolean"},
+                "notes": {"type": "array", "items": {"type": "object", "properties": {
+                    "start": {"type": "number", "minimum": 0},
+                    "pitch": {"type": "integer", "minimum": 0, "maximum": 127},
+                    "velocity": {"type": "integer", "minimum": 1, "maximum": 127},
+                    "duration": {"type": "number", "exclusiveMinimum": 0}},
+                  "required": ["start", "pitch", "duration"]}}""",
+            "\"notes\"", f, log,
+            a -> {
+                List<BitwigEditFacade.Note> notes = new ArrayList<>();
+                for (Map<String, Object> n : a.list("notes")) {
+                    Args na = new Args(n, f, "write_arranger_notes");
+                    Integer vel = na.integer("velocity");
+                    notes.add(new BitwigEditFacade.Note(na.number("start"), na.requiredInt("pitch"), vel == null ? 100 : vel,
+                        na.number("duration")));
+                }
+                return s.writeArrangerNotes(notes, Boolean.TRUE.equals(a.bool("clear_first")));
+            }));
+
+        specs.add(tool("set_scene", "Rename and/or color a scene.",
+            """
+                "scene_index": {"type": "integer", "minimum": 0},
+                "name": {"type": "string"},
+                "color": {"type": "string", "description": "#RRGGBB"}""",
+            "\"scene_index\"", f, log,
+            a -> s.setScene(a.requiredInt("scene_index"), a.string("name"), a.string("color"))));
+        String sceneProp = "\"scene_index\": {\"type\": \"integer\", \"minimum\": 0}";
+        specs.add(tool("delete_scene", "Delete a scene and its clips.", sceneProp, "\"scene_index\"", f, log,
+            a -> s.deleteOrDuplicateScene(a.requiredInt("scene_index"), true)));
+        specs.add(tool("duplicate_scene", "Duplicate a scene and its clips; the copy goes below it.", sceneProp,
+            "\"scene_index\"", f, log,
+            a -> s.deleteOrDuplicateScene(a.requiredInt("scene_index"), false)));
+        String sceneMoveProps = """
+                "from_scene": {"type": "integer", "minimum": 0},
+                "to_scene": {"type": "integer", "minimum": 0}""";
+        specs.add(tool("copy_scene", "Copy every clip of a scene onto another scene's row.", sceneMoveProps,
+            "\"from_scene\", \"to_scene\"", f, log,
+            a -> s.copyOrMoveScene(a.requiredInt("from_scene"), a.requiredInt("to_scene"), false)));
+        specs.add(tool("move_scene", "Move every clip of a scene onto another scene's row.", sceneMoveProps,
+            "\"from_scene\", \"to_scene\"", f, log,
+            a -> s.copyOrMoveScene(a.requiredInt("from_scene"), a.requiredInt("to_scene"), true)));
+        specs.add(tool("set_cue", "Set the cue (headphone) bus volume and its cue/master mix, both 0-1.",
+            """
+                "volume": {"type": "number", "minimum": 0, "maximum": 1},
+                "mix": {"type": "number", "minimum": 0, "maximum": 1}""",
+            null, f, log, a -> p.setCue(a.number("volume"), a.number("mix"))));
 
         return specs;
     }
@@ -771,20 +853,32 @@ public class EditTools {
                 return s.playNotes(a.track(), notes);
             }));
 
-        specs.add(tool("read_notes", "Read the MIDI notes of a launcher clip (beats from the clip start) and its loop settings.",
-            TRACK_PROPS + ",\n\"slot_index\": {\"type\": \"integer\", \"minimum\": 0}", "\"slot_index\"", f, log,
-            a -> s.readNotes(a.track(), a.requiredInt("slot_index"))));
+        specs.add(tool("read_notes",
+            "Read the MIDI notes of a launcher clip, or of the arranger's selected clip with arranger: true (beats from "
+                + "the clip start), with every expression and condition that is not at its default, and the clip settings.",
+            TRACK_PROPS + ",\n\"slot_index\": {\"type\": \"integer\", \"minimum\": 0},\n" + ARRANGER_PROP, null, f, log,
+            a -> s.readNotes(a.clipTrack(), a.integer("slot_index"), a.arranger())));
 
-        specs.add(tool("set_clip", "Rename a launcher clip and/or set its loop start and length in beats.",
-            TRACK_PROPS + """
+        specs.add(tool("set_clip",
+            "Clip settings for a launcher clip (or the arranger's selected clip with arranger: true): name, loop "
+                + "on/off, loop start and length, play start and stop (beats), shuffle on/off, accent (0-1, 0.5 = none), color.",
+            TRACK_PROPS + ",\n" + ARRANGER_PROP + """
                 ,
                 "slot_index": {"type": "integer", "minimum": 0},
                 "name": {"type": "string"},
+                "loop_enabled": {"type": "boolean"},
                 "loop_start_beats": {"type": "number", "minimum": 0},
-                "loop_length_beats": {"type": "number", "exclusiveMinimum": 0}""",
-            "\"slot_index\"", f, log,
-            a -> s.setClip(a.track(), a.requiredInt("slot_index"), a.string("name"), a.number("loop_start_beats"),
-                a.number("loop_length_beats"))));
+                "loop_length_beats": {"type": "number", "exclusiveMinimum": 0},
+                "play_start_beats": {"type": "number", "minimum": 0},
+                "play_stop_beats": {"type": "number", "minimum": 0},
+                "shuffle": {"type": "boolean"},
+                "accent": {"type": "number", "minimum": 0, "maximum": 1},
+                "color": {"type": "string", "description": "#RRGGBB"}""",
+            null, f, log,
+            a -> s.setClip(a.clipTrack(), a.integer("slot_index"), a.arranger(), new BitwigSessionFacade.ClipSettings(
+                a.string("name"), a.number("loop_start_beats"), a.number("loop_length_beats"), a.bool("loop_enabled"),
+                a.number("play_start_beats"), a.number("play_stop_beats"), a.bool("shuffle"), a.number("accent"),
+                a.string("color")))));
 
         return specs;
     }

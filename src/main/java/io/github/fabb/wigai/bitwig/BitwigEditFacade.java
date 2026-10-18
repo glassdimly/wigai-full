@@ -119,6 +119,9 @@ public class BitwigEditFacade {
             track.pan().value().markInterested();
             track.pan().displayedValue().markInterested();
             track.monitorMode().markInterested();
+            track.isGroup().markInterested();
+            track.isGroupExpanded().markInterested();
+            track.crossFadeMode().markInterested();
             SendBank sends = sendBankOrNull(track);
             for (int i = 0; sends != null && i < sends.getSizeOfBank(); i++) {
                 Send send = sends.getItemAt(i);
@@ -352,8 +355,25 @@ public class BitwigEditFacade {
     public Map<String, Object> setTrackProperties(int trackIndex, String name, Double volume, Double volumeDb, Double pan,
                                                   Boolean mute, Boolean solo, Boolean arm, Boolean activated,
                                                   String monitorMode, String color) throws BitwigApiException {
+        return setTrackProperties(trackIndex, name, volume, volumeDb, pan, mute, solo, arm, activated, monitorMode, color,
+            null, null);
+    }
+
+    public Map<String, Object> setTrackProperties(int trackIndex, String name, Double volume, Double volumeDb, Double pan,
+                                                  Boolean mute, Boolean solo, Boolean arm, Boolean activated,
+                                                  String monitorMode, String color, Boolean groupExpanded,
+                                                  String crossfadeMode) throws BitwigApiException {
         final String operation = "setTrackProperties";
         Track track = trackBank.getItemAt(trackIndex);
+        if (groupExpanded != null) {
+            if (!track.isGroup().get()) {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation, "Track is not a group");
+            }
+            track.isGroupExpanded().set(groupExpanded);
+        }
+        if (crossfadeMode != null) {
+            track.crossFadeMode().set(crossfadeMode.toUpperCase(Locale.ROOT));
+        }
         if (name != null) {
             track.name().set(name);
         }
@@ -475,6 +495,10 @@ public class BitwigEditFacade {
         m.put("arm", track.arm().get());
         m.put("activated", track.isActivated().get());
         m.put("monitor_mode", track.monitorMode().get());
+        m.put("crossfade_mode", track.crossFadeMode().get());
+        if (track.isGroup().get()) {
+            m.put("group_expanded", track.isGroupExpanded().get());
+        }
         m.put("is_master", isMaster(track));
         List<Map<String, Object>> sends = new ArrayList<>();
         SendBank sendBank = sendBankOrNull(track);
