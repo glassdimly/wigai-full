@@ -3,6 +3,7 @@ package io.github.fabb.wigai.mcp.tool;
 import io.github.fabb.wigai.bitwig.BitwigApiFacade;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -33,10 +34,8 @@ public class ListScenesTool {
               "additionalProperties": false
             }""";
 
-        var tool = McpSchema.Tool.builder()
-            .name("list_scenes")
+        var tool = McpSchema.Tool.builder("list_scenes", McpJson.MAPPER, schema)
             .description("List all scenes in the current project with their name and color. Returns information about scene structure.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

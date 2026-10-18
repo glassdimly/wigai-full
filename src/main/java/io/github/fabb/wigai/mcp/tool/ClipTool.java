@@ -7,6 +7,7 @@ import io.github.fabb.wigai.common.validation.ParameterValidator;
 import io.github.fabb.wigai.features.ClipSceneController;
 import io.github.fabb.wigai.features.ClipSceneController.ClipLaunchResult;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
@@ -49,10 +50,8 @@ public class ClipTool {
               "required": ["track_name", "clip_index"]
             }""";
 
-        var tool = McpSchema.Tool.builder()
-            .name(TOOL_NAME)
+        var tool = McpSchema.Tool.builder(TOOL_NAME, McpJson.MAPPER, schema)
             .description("Launch a specific clip in Bitwig by providing track name and clip slot index")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

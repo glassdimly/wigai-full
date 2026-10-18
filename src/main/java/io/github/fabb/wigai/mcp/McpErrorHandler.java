@@ -29,8 +29,11 @@ public class McpErrorHandler {
             "data", data
         );
         String jsonResponse = WigAIErrorHandler.toJsonString(response);
-        McpSchema.TextContent textContent = new McpSchema.TextContent(jsonResponse);
-        return new McpSchema.CallToolResult(List.of(textContent), false);
+        McpSchema.TextContent textContent = McpSchema.TextContent.builder(jsonResponse).build();
+        return McpSchema.CallToolResult.builder()
+            .content(List.of(textContent))
+            .isError(false)
+            .build();
     }
 
     /**
@@ -51,8 +54,11 @@ public class McpErrorHandler {
             )
         );
         String jsonResponse = WigAIErrorHandler.toJsonString(response);
-        McpSchema.TextContent textContent = new McpSchema.TextContent(jsonResponse);
-        return new McpSchema.CallToolResult(List.of(textContent), true);
+        McpSchema.TextContent textContent = McpSchema.TextContent.builder(jsonResponse).build();
+        return McpSchema.CallToolResult.builder()
+            .content(List.of(textContent))
+            .isError(true)
+            .build();
     }
 
     /**
@@ -86,8 +92,11 @@ public class McpErrorHandler {
             )
         );
         String jsonResponse = WigAIErrorHandler.toJsonString(response);
-        McpSchema.TextContent textContent = new McpSchema.TextContent(jsonResponse);
-        return new McpSchema.CallToolResult(List.of(textContent), true);
+        McpSchema.TextContent textContent = McpSchema.TextContent.builder(jsonResponse).build();
+        return McpSchema.CallToolResult.builder()
+            .content(List.of(textContent))
+            .isError(true)
+            .build();
     }
 
     /**

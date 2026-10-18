@@ -3,6 +3,7 @@ package io.github.fabb.wigai.mcp.tool;
 import io.github.fabb.wigai.common.logging.StructuredLogger;
 import io.github.fabb.wigai.features.ClipSceneController;
 import io.github.fabb.wigai.mcp.McpErrorHandler;
+import io.github.fabb.wigai.mcp.McpJson;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -48,10 +49,8 @@ public class GetClipsInSceneTool {
               ]
             }""";
 
-        var tool = McpSchema.Tool.builder()
-            .name("get_clips_in_scene")
+        var tool = McpSchema.Tool.builder("get_clips_in_scene", McpJson.MAPPER, schema)
             .description("Get detailed information for all clips within a specific scene, including track context, content properties, and playback states.")
-            .inputSchema(schema)
             .build();
 
         BiFunction<McpSyncServerExchange, CallToolRequest, McpSchema.CallToolResult> handler =

@@ -118,7 +118,7 @@ class ClipToolTest {
         McpServerFeatures.SyncToolSpecification specification = ClipTool.launchClipSpecification(clipSceneController, structuredLogger);
 
         // Verify tool schema includes validation requirements
-        McpSchema.JsonSchema schema = specification.tool().inputSchema();
+        Map<String, Object> schema = specification.tool().inputSchema();
         assertNotNull(schema);
         // Verify schema is properly configured for validation
         String schemaString = schema.toString();
