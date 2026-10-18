@@ -77,6 +77,7 @@ class BitwigEditFacadeBehaviourTest {
     void setUp() {
         ControllerHost host = mock(ControllerHost.class, RETURNS_DEEP_STUBS);
         Application application = mock(Application.class);
+        when(application.panelLayout()).thenReturn(mock(StringValue.class));
         transport = mock(Transport.class, RETURNS_DEEP_STUBS);
         TrackBank trackBank = mock(TrackBank.class);
         track = mock(Track.class, RETURNS_DEEP_STUBS);

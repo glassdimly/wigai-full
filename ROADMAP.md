@@ -23,18 +23,13 @@ Everything here is meant to go upstream to [fabb/WigAI](https://github.com/fabb/
 | Presets and the library | `list_presets` (every .bwpreset on disk, searchable), `preset_file` on `insert_device`, `replace_device` (device, plugin or preset in place), `browser_open` / `browser_state` / `browser_filter` / `browser_commit` / `browser_cancel` (Bitwig's own browser: content types, every filter column, paged results; mode `replace` lists a device's presets) |
 | Drum Machine and layers | `list_drum_pads`, `set_drum_pad` (name, volume, pan, mute, solo), `insert_into_drum_pad` (device, plugin, preset, or a sample, which becomes a Sampler), `clear_drum_pads`, `list_layers`, `set_layer`; device lists now show each device's loaded preset |
 | Note expressions, clip settings, scenes, arranger clips | `edit_notes` adds release velocity, velocity spread, occurrence, recurrence and repeat curves; `read_notes` reports every non-default expression; `set_clip` adds loop on/off, play start/stop, shuffle, accent, color; `arranger: true` on `read_notes` / `edit_notes` / `set_clip` / `transform_clip` and `write_arranger_notes` work on the arranger clip the user selected; `set_scene`, `delete_scene`, `duplicate_scene`, `copy_scene`, `move_scene`; `set_cue` (cue volume and mix); `set_track` adds group expand/collapse and crossfade side |
+| Listening, MIDI and the UI | `get_playing_notes` (notes sounding per track), `send_midi` (CC, pitch bend, program, aftertouch, raw), modulated values in `get_device_parameters`, `show` (panel layout, track, clip in editor, device) |
 | Device knowledge | `list_installed_devices`, `describe_device` (on-demand control scans with history), `fetch_device_docs`, `catalog_status` |
 
 ## Next: high value
 
-1. **What is modulated.** Read macros and modulation sources (`Device.getMacro`, `getModulationSource`) so an agent can see why a knob moves.
-2. **Playing notes and raw MIDI.** `Channel.playingNotes` (which notes sound right now), `Track.sendMidi`.
-3. **Arpeggiator settings** exposed by the API (`Arpeggiator` on note inputs).
-
-## Later
-
-4. **UI focus.** Panel layouts (Arrange/Mix/Edit), show a clip or device in the editor (`showInEditor`, `selectInEditor`), make a track visible. Most of this is already reachable through `invoke_action`.
-5. **Live state streaming** ([fabb/WigAI#3](https://github.com/fabb/WigAI/issues/3)). Push playhead position, levels and parameter changes as MCP notifications instead of polling.
+1. **Live state streaming** ([fabb/WigAI#3](https://github.com/fabb/WigAI/issues/3)). Push playhead position, levels and parameter changes as MCP notifications instead of polling.
+2. **Plugin inventory inside the extension.** `list_installed_devices` still depends on the Python scanner for CLAP/VST3 plugins; Bitwig's own plugin metadata cache could be read directly.
 
 ## Not possible with the Controller API
 
@@ -42,7 +37,7 @@ These need changes in Bitwig itself; tools should tell the user to do them by ha
 
 - **Audio and MIDI routing:** track inputs/outputs, sidechain sources, an Audio Receiver's source. `Track.sourceSelector` is read-only.
 - **Placing clips on the arranger timeline**, or reading where arranger clips are.
-- **Adding or removing modulators** (LFOs, envelopes) and modulation routings.
+- **Adding or removing modulators** (LFOs, envelopes) and modulation routings. Their effect can be read: `get_device_parameters` reports a control's modulated value.
 - **Writing automation points.** Only by recording parameter changes with automation write enabled.
 - **Parameters that are not on a remote-control page** ([fabb/WigAI#15](https://github.com/fabb/WigAI/issues/15)).
 - **Rendering, bouncing or exporting audio**, other than through application actions where Bitwig offers one.

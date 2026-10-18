@@ -329,7 +329,8 @@ public class EditTools {
 
         specs.add(tool("get_device_parameters",
             "Read a device's parameters on any track without changing the user's selection. "
-                + "Returns all remote-control pages, or one page if 'page' is given.",
+                + "Returns all remote-control pages, or one page if 'page' is given. A control that a modulator "
+                + "(LFO, envelope, macro) is moving also has modulated_value/modulated_display, its effective value now.",
             DEVICE_PROPS + ",\n" + CHAIN_PROPS + ",\n\"page\": {\"type\": \"integer\", \"minimum\": 0}", "\"device_index\"", f, log,
             a -> f.getDeviceParameters(a.track(), a.requiredInt("device_index"), a.string("chain"),
                 a.integer("chain_device_index"), a.integer("page"))));
@@ -852,6 +853,38 @@ public class EditTools {
                 }
                 return s.playNotes(a.track(), notes);
             }));
+
+        specs.add(tool("get_playing_notes",
+            "Which notes are sounding right now on each track (from clips, the user's input or play_notes).",
+            "", null, f, log, a -> s.playingNotes()));
+
+        specs.add(tool("send_midi",
+            "Send a MIDI message into a track's instrument: cc (number, value 0-127), pitch_bend (value -8192..8191, "
+                + "0 = center), program (number), aftertouch (value), or raw (status 0x80-0xEF, number, value). "
+                + "channel 0-15, default 0. Use play_notes for notes.",
+            TRACK_PROPS + """
+                ,
+                "type": {"type": "string", "enum": ["cc", "pitch_bend", "program", "aftertouch", "raw"]},
+                "channel": {"type": "integer", "minimum": 0, "maximum": 15},
+                "number": {"type": "integer", "minimum": 0, "maximum": 127},
+                "value": {"type": "integer"},
+                "status": {"type": "integer"}""",
+            "\"type\"", f, log,
+            a -> s.sendMidi(a.track(), a.requiredString("type"), a.integer("channel") == null ? 0 : a.integer("channel"),
+                a.integer("number"), a.integer("value"), a.integer("status"))));
+
+        specs.add(tool("show",
+            "Bring something into view in Bitwig's window for the user: a panel layout (ARRANGE, MIX, EDIT), a track, "
+                + "a launcher clip in the editor (slot_index), or a device (device_index). Changes the user's selection.",
+            TRACK_PROPS + """
+                ,
+                "panel_layout": {"type": "string", "enum": ["ARRANGE", "MIX", "EDIT"]},
+                "slot_index": {"type": "integer", "minimum": 0},
+                "device_index": {"type": "integer", "minimum": 0}""",
+            null, f, log,
+            a -> f.show(a.string("panel_layout"),
+                a.integer("track_index") != null || a.string("track_name") != null ? a.track() : null,
+                a.integer("slot_index"), a.integer("device_index"))));
 
         specs.add(tool("read_notes",
             "Read the MIDI notes of a launcher clip, or of the arranger's selected clip with arranger: true (beats from "
