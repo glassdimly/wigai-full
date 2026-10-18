@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Knowledge about every device and plugin installed: what it is (from disk), what it is for (the bundled
@@ -47,8 +48,17 @@ public class DeviceCatalog {
     private final String bitwigVersion;
     private final ObjectMapper json = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private final Map<String, Map<String, Object>> guide;
+    private final Path pluginCacheDir;
+
+    /** Catalog sections: Bitwig devices, plugins by format (from Bitwig's plugin cache), LV2 via Carla, other. */
+    private static final List<String> SECTIONS = List.of("bitwig", "clap", "vst3", "vst2", "lv2", "other");
 
     public DeviceCatalog(Path file, BitwigEditFacade edit, Logger logger, String bitwigVersion) {
+        this(file, edit, logger, bitwigVersion, PluginCache.defaultDir());
+    }
+
+    public DeviceCatalog(Path file, BitwigEditFacade edit, Logger logger, String bitwigVersion, Path pluginCacheDir) {
+        this.pluginCacheDir = pluginCacheDir;
         this.file = file;
         this.edit = edit;
         this.logger = logger;
@@ -77,8 +87,20 @@ public class DeviceCatalog {
                 logger.error("DeviceCatalog: could not read " + file + ": " + e.getMessage());
             }
         }
-        for (String section : List.of("bitwig", "clap", "lv2", "other")) {
+        for (String section : SECTIONS) {
             cat.computeIfAbsent(section, k -> new LinkedHashMap<String, Object>());
+        }
+        for (PluginCache.Plugin p : PluginCache.read(pluginCacheDir)) {
+            Map<String, Object> e = (Map<String, Object>) ((Map<String, Object>) cat.get(p.kind()))
+                .computeIfAbsent(p.id(), k -> new LinkedHashMap<>());
+            e.putIfAbsent("name", p.name());
+            putIfPresent(e, "vendor", p.vendor());
+            putIfPresent(e, "category", p.category());
+            putIfPresent(e, "version", p.version());
+            if (!p.features().isEmpty()) {
+                e.putIfAbsent("features", p.features());
+            }
+            putIfPresent(e, "file", p.file());
         }
         Map<String, Object> bitwig = (Map<String, Object>) cat.get("bitwig");
         for (Map<String, Object> d : edit.listBitwigDevices(null)) {
@@ -103,10 +125,16 @@ public class DeviceCatalog {
 
     private record Found(String section, String key, Map<String, Object> entry) {}
 
+    private static void putIfPresent(Map<String, Object> m, String key, String value) {
+        if (value != null && !value.isEmpty()) {
+            m.putIfAbsent(key, value);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static Found find(Map<String, Object> cat, String query) {
         String q = query.trim().toLowerCase(Locale.ROOT);
-        for (String section : List.of("bitwig", "clap", "other", "lv2")) {
+        for (String section : SECTIONS) {
             Map<String, Object> entries = (Map<String, Object>) cat.get(section);
             for (Map.Entry<String, Object> e : entries.entrySet()) {
                 Map<String, Object> entry = (Map<String, Object>) e.getValue();
@@ -159,7 +187,7 @@ public class DeviceCatalog {
         Map<String, Object> cat = load();
         List<String> words = query == null ? List.of() : List.of(query.toLowerCase(Locale.ROOT).split("\\s+"));
         List<Map<String, Object>> out = new ArrayList<>();
-        for (String section : List.of("bitwig", "clap", "lv2")) {
+        for (String section : SECTIONS) {
             if (kind != null && !kind.equalsIgnoreCase(section)) {
                 continue;
             }
@@ -186,7 +214,8 @@ public class DeviceCatalog {
                     m.put("id", e.getKey());
                     m.put("vendor", entry.get("vendor"));
                 }
-                m.put("type", section.equals("bitwig") ? entry.get("type") : str(entry.get("features")));
+                m.put("type", section.equals("bitwig") ? entry.get("type")
+                    : entry.get("features") != null ? str(entry.get("features")) : entry.get("category"));
                 if (g != null) {
                     m.put("use_for", g.get("use_for"));
                 } else if (entry.get("description") != null && !str(entry.get("description")).isBlank()) {
@@ -203,8 +232,9 @@ public class DeviceCatalog {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("count", out.size());
         result.put("devices", out.size() > 150 ? out.subList(0, 150) : out);
-        if (((Map<String, Object>) cat.get("clap")).isEmpty()) {
-            result.put("note", "Plugins are not listed yet: run scripts/device_catalog.py inventory to add them.");
+        if (Stream.of("clap", "vst3", "vst2").allMatch(k -> ((Map<String, Object>) cat.get(k)).isEmpty())) {
+            result.put("note", "No plugins found in Bitwig's plugin cache (" + pluginCacheDir
+                + "). Bitwig fills it when it scans plugin folders (Settings > Locations).");
         }
         return result;
     }
@@ -276,13 +306,16 @@ public class DeviceCatalog {
         final String operation = "describeDevice";
         String bitwigName = "bitwig".equals(found.section()) ? str(found.entry().get("name")) : null;
         String clapId = "clap".equals(found.section()) ? found.key() : null;
-        if (bitwigName == null && clapId == null) {
+        String vst3Id = "vst3".equals(found.section()) ? found.key() : null;
+        Integer vst2Id = "vst2".equals(found.section()) ? Integer.valueOf(found.key()) : null;
+        if (bitwigName == null && clapId == null && vst3Id == null && vst2Id == null) {
             throw new BitwigApiException(ErrorCode.DEVICE_NOT_FOUND, operation,
                 "'" + found.key() + "' can only be scanned on an instance: insert it and pass track and device_index");
         }
         int track = (int) edit.createTrack("instrument", null, SCRATCH_TRACK).get("track_index");
         try {
-            Map<String, Object> ins = edit.insertDevice(track, null, null, bitwigName, clapId, null, "end", null);
+            Map<String, Object> ins = edit.insertDevice(track, null, null, bitwigName, clapId, vst3Id, vst2Id, null,
+                "end", null);
             if (!Boolean.TRUE.equals(ins.get("inserted"))) {
                 Map<String, Object> err = new LinkedHashMap<>();
                 err.put("error", "Bitwig did not insert it");
@@ -597,7 +630,7 @@ public class DeviceCatalog {
         List<Map<String, Object>> recent = new ArrayList<>();
         List<String> stale = new ArrayList<>();
         List<String> failed = new ArrayList<>();
-        for (String section : List.of("bitwig", "clap", "other", "lv2")) {
+        for (String section : SECTIONS) {
             Map<String, Object> entries = (Map<String, Object>) cat.get(section);
             int scanned = 0;
             for (Map.Entry<String, Object> e : entries.entrySet()) {
@@ -607,7 +640,7 @@ public class DeviceCatalog {
                         failed.add(section + ":" + e.getKey());
                     } else {
                         scanned++;
-                        if (bitwigVersion != null && !bitwigVersion.equals(s.get("bitwig_version"))) {
+                        if (bitwigVersion != null && s.get("bitwig_version") != null && !bitwigVersion.equals(s.get("bitwig_version"))) {
                             stale.add(section + ":" + e.getKey() + " (scanned on " + s.get("bitwig_version") + ")");
                         }
                     }

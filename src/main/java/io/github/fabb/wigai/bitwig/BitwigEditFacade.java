@@ -840,10 +840,17 @@ public class BitwigEditFacade {
     public Map<String, Object> insertDevice(int trackIndex, Integer deviceIndex, String chain, String bitwigDevice,
                                             String clapId, String vst3Id, String presetFile, String position,
                                             Integer afterDeviceIndex) throws BitwigApiException {
+        return insertDevice(trackIndex, deviceIndex, chain, bitwigDevice, clapId, vst3Id, null, presetFile, position,
+            afterDeviceIndex);
+    }
+
+    public Map<String, Object> insertDevice(int trackIndex, Integer deviceIndex, String chain, String bitwigDevice,
+                                            String clapId, String vst3Id, Integer vst2Id, String presetFile,
+                                            String position, Integer afterDeviceIndex) throws BitwigApiException {
         final String operation = "insertDevice";
         Destination dest = destination(primary, trackIndex, deviceIndex, chain, position, afterDeviceIndex, operation);
         int before = countBank(dest.devices());
-        insertInto(dest.point(), bitwigDevice, clapId, vst3Id, presetFile, operation);
+        insertInto(dest.point(), bitwigDevice, clapId, vst3Id, vst2Id, presetFile, operation);
         boolean added = waitFor(() -> countBank(dest.devices()) > before);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("inserted", added);
@@ -857,6 +864,11 @@ public class BitwigEditFacade {
     /** Inserts a Bitwig device, a plugin, or a file (.bwpreset, .bwdevice, a plugin preset, or a sample) at a point. */
     void insertInto(InsertionPoint ip, String bitwigDevice, String clapId, String vst3Id, String file, String operation)
             throws BitwigApiException {
+        insertInto(ip, bitwigDevice, clapId, vst3Id, null, file, operation);
+    }
+
+    void insertInto(InsertionPoint ip, String bitwigDevice, String clapId, String vst3Id, Integer vst2Id, String file,
+                    String operation) throws BitwigApiException {
         if (bitwigDevice != null) {
             UUID id = findBitwigDevice(bitwigDevice);
             if (id == null) {
@@ -868,6 +880,8 @@ public class BitwigEditFacade {
             ip.insertCLAPDevice(clapId);
         } else if (vst3Id != null) {
             ip.insertVST3Device(vst3Id);
+        } else if (vst2Id != null) {
+            ip.insertVST2Device(vst2Id);
         } else if (file != null) {
             if (!Files.isRegularFile(Path.of(file))) {
                 throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation, "No such file: " + file);
@@ -875,7 +889,7 @@ public class BitwigEditFacade {
             ip.insertFile(file);
         } else {
             throw new BitwigApiException(ErrorCode.MISSING_REQUIRED_PARAMETER, operation,
-                "Provide bitwig_device, clap_id, vst3_id or preset_file");
+                "Provide bitwig_device, clap_id, vst3_id, vst2_id or preset_file");
         }
     }
 
@@ -886,11 +900,18 @@ public class BitwigEditFacade {
     public Map<String, Object> replaceDevice(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
                                              String bitwigDevice, String clapId, String vst3Id, String presetFile)
             throws BitwigApiException {
+        return replaceDevice(trackIndex, deviceIndex, chain, chainDeviceIndex, bitwigDevice, clapId, vst3Id, null,
+            presetFile);
+    }
+
+    public Map<String, Object> replaceDevice(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
+                                             String bitwigDevice, String clapId, String vst3Id, Integer vst2Id,
+                                             String presetFile) throws BitwigApiException {
         final String operation = "replaceDevice";
         Device device = resolveTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
         String oldName = device.name().get();
         String oldPreset = device.presetName().get();
-        insertInto(device.replaceDeviceInsertionPoint(), bitwigDevice, clapId, vst3Id, presetFile, operation);
+        insertInto(device.replaceDeviceInsertionPoint(), bitwigDevice, clapId, vst3Id, vst2Id, presetFile, operation);
         waitFor(() -> !oldName.equals(device.name().get()) || !oldPreset.equals(device.presetName().get()), 4000);
         settle();
         Map<String, Object> result = new LinkedHashMap<>();
