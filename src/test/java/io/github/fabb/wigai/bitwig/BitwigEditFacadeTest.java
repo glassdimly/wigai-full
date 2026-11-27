@@ -158,6 +158,91 @@ class BitwigEditFacadeTest {
         assertThrows(BitwigApiException.class, () -> facade.createTrack("audio", 9, null));
     }
 
+    /** Regression: when an expanded group shifts where Bitwig inserts a track, rename the new track, not the existing one at pos. */
+    @Test
+    void createTrackLocatesInsertedTrackWhenGroupShiftsIndex() throws Exception {
+        // Reproduces: [0] Drums (Group), [1] Melo (Group), [2] mine (Instrument), [3] agy-manual (Instrument),
+        // create_track(instrument, position=3, name="agy-mcp") inserts "Inst 4" at flat index 4 instead of 3.
+        TrackBank bank = mock(TrackBank.class);
+        when(bank.getSizeOfBank()).thenReturn(6);
+        Track[] slots = new Track[6];
+        List<DeviceBank> devBanks = new java.util.ArrayList<>();
+        String[] initNames = {"Drums", "Melo", "mine", "agy-manual", "Inst 4", "Master"};
+        String[] initTypes = {"Group", "Group", "Instrument", "Instrument", "Instrument", "Master"};
+        boolean[] initGroup = {true, true, false, false, false, false};
+        java.util.concurrent.atomic.AtomicBoolean inserted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.atomic.AtomicReference<String> newTrackName = new java.util.concurrent.atomic.AtomicReference<>("Inst 4");
+
+        for (int i = 0; i < 6; i++) {
+            final int idx = i;
+            Track t = mock(Track.class, RETURNS_DEEP_STUBS);
+            when(t.clipLauncherSlotBank().getSizeOfBank()).thenReturn(0);
+            when(t.trackType().get()).thenReturn(initTypes[idx]);
+            when(t.isGroup().get()).thenReturn(initGroup[idx]);
+            if (idx == 4) {
+                when(t.exists().get()).thenAnswer(inv -> inserted.get());
+                SettableStringValue nameVal = mock(SettableStringValue.class);
+                when(nameVal.get()).thenAnswer(inv -> newTrackName.get());
+                doAnswer(inv -> {
+                    newTrackName.set(inv.getArgument(0));
+                    return null;
+                }).when(nameVal).set(anyString());
+                when(t.name()).thenReturn(nameVal);
+            } else {
+                when(t.exists().get()).thenReturn(true);
+                when(t.name().get()).thenReturn(initNames[idx]);
+            }
+            slots[idx] = t;
+            when(bank.getItemAt(idx)).thenReturn(t);
+            DeviceBank db = mock(DeviceBank.class);
+            when(db.getSizeOfBank()).thenReturn(0);
+            devBanks.add(db);
+        }
+
+        Application app = mock(Application.class);
+        when(app.panelLayout()).thenReturn(mock(StringValue.class));
+        doAnswer(inv -> {
+            inserted.set(true);
+            return null;
+        }).when(app).createInstrumentTrack(3);
+
+        BitwigEditFacade f = new BitwigEditFacade(host, mock(Logger.class), app,
+            mock(Transport.class, RETURNS_DEEP_STUBS), bank, devBanks, 0);
+
+        Map<String, Object> result = f.createTrack("instrument", 3, "agy-mcp");
+        assertEquals(4, result.get("track_index"));
+        assertEquals("agy-mcp", result.get("name"));
+        verify(slots[3].name(), never()).set(anyString()); // existing track at index 3 must NOT be touched
+        verify(slots[4].name()).set("agy-mcp");
+    }
+
+    @Test
+    void findInsertedTrackIndexHandlesStartMiddleAndEnd() {
+        var t0 = new BitwigEditFacade.TrackEntry(0, "A", "Audio", false, 1);
+        var t1 = new BitwigEditFacade.TrackEntry(1, "B", "Audio", false, 1);
+        var added = new BitwigEditFacade.TrackEntry(0, "Audio 3", "Audio", false, 0);
+        // Inserted at start (0)
+        assertEquals(0, BitwigEditFacade.findInsertedTrackIndex(
+            List.of(t0, t1),
+            List.of(added,
+                new BitwigEditFacade.TrackEntry(1, "A", "Audio", false, 1),
+                new BitwigEditFacade.TrackEntry(2, "B", "Audio", false, 1)),
+            0, "audio"));
+        // Inserted in middle (1)
+        assertEquals(1, BitwigEditFacade.findInsertedTrackIndex(
+            List.of(t0, t1),
+            List.of(t0,
+                new BitwigEditFacade.TrackEntry(1, "Audio 3", "Audio", false, 0),
+                new BitwigEditFacade.TrackEntry(2, "B", "Audio", false, 1)),
+            1, "audio"));
+        // Inserted at end (2) even though expectedFlatIndex was 1
+        assertEquals(2, BitwigEditFacade.findInsertedTrackIndex(
+            List.of(t0, t1),
+            List.of(t0, t1,
+                new BitwigEditFacade.TrackEntry(2, "Audio 3", "Audio", false, 0)),
+            1, "audio"));
+    }
+
     @Test
     void setTrackPropertiesMapsPanAndColor() throws Exception {
         facade.setTrackProperties(0, "Stack", null, null, -1.0, true, null, null, null, "auto", "#FF8000");
