@@ -289,6 +289,79 @@ public class BitwigEditFacade {
     // Tracks
     // ========================================
 
+    record TrackEntry(int flatIndex, String name, String trackType, boolean isGroup, int deviceCount) {}
+
+    private List<TrackEntry> snapshotTracks(boolean effect) {
+        List<TrackEntry> entries = new ArrayList<>();
+        for (int i = 0; i < trackBank.getSizeOfBank(); i++) {
+            Track t = trackBank.getItemAt(i);
+            if (t.exists().get() && !isMaster(t) && isEffect(t) == effect) {
+                int devices = i < trackDeviceBanks.size() ? countDevices(i) : 0;
+                entries.add(new TrackEntry(i, t.name().get(), t.trackType().get(), t.isGroup().get(), devices));
+            }
+        }
+        return entries;
+    }
+
+    private static boolean sameTrack(TrackEntry a, TrackEntry b) {
+        return java.util.Objects.equals(a.name(), b.name())
+            && java.util.Objects.equals(a.trackType(), b.trackType())
+            && a.isGroup() == b.isGroup()
+            && a.deviceCount() == b.deviceCount();
+    }
+
+    /**
+     * Locates the newly inserted track by diffing the track bank snapshot before and after creation.
+     * When group tracks are expanded, {@code Application.create*Track(pos)} may insert the new track
+     * at a different flat index than {@code pos}, so blindly renaming {@code pos} would overwrite an
+     * existing track inside the group.
+     */
+    static int findInsertedTrackIndex(List<TrackEntry> before, List<TrackEntry> after,
+                                      int expectedFlatIndex, String expectedType) {
+        if (after.size() == before.size() + 1) {
+            int n = before.size();
+            int prefix = 0;
+            while (prefix < n && sameTrack(before.get(prefix), after.get(prefix))) {
+                prefix++;
+            }
+            int suffix = 0;
+            while (suffix < n - prefix && sameTrack(before.get(n - 1 - suffix), after.get(n - suffix))) {
+                suffix++;
+            }
+            int lastCandidate = n - suffix;
+            List<TrackEntry> matches = new ArrayList<>();
+            for (int i = prefix; i <= lastCandidate; i++) {
+                TrackEntry c = after.get(i);
+                if (expectedType.equalsIgnoreCase(c.trackType())) {
+                    matches.add(c);
+                }
+            }
+            if (matches.size() == 1) {
+                return matches.get(0).flatIndex();
+            }
+            for (TrackEntry c : matches) {
+                if (c.flatIndex() == expectedFlatIndex) {
+                    return c.flatIndex();
+                }
+            }
+            for (TrackEntry c : matches) {
+                if (c.deviceCount() == 0) {
+                    return c.flatIndex();
+                }
+            }
+            if (!matches.isEmpty()) {
+                return matches.get(matches.size() - 1).flatIndex();
+            }
+            return -1;
+        }
+        for (TrackEntry c : after) {
+            if (c.flatIndex() == expectedFlatIndex && expectedType.equalsIgnoreCase(c.trackType())) {
+                return c.flatIndex();
+            }
+        }
+        return -1;
+    }
+
     public Map<String, Object> createTrack(String type, Integer position, String name) throws BitwigApiException {
         final String operation = "createTrack";
         boolean effect = "effect".equals(type);
@@ -300,6 +373,7 @@ public class BitwigEditFacade {
             throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation,
                 "position must be 0.." + before + (effect ? " (among effect tracks)" : ""));
         }
+        List<TrackEntry> beforeSnapshot = snapshotTracks(effect);
         switch (type) {
             case "audio" -> application.createAudioTrack(pos);
             case "instrument" -> application.createInstrumentTrack(pos);
@@ -310,9 +384,15 @@ public class BitwigEditFacade {
         if (!waitFor(() -> (effect ? countEffectTracks() : countTracks()) > before)) {
             throw new BitwigApiException(ErrorCode.BITWIG_TIMEOUT, operation, "Track was not created in time");
         }
-        int flatIndex = effect ? countTracks() + pos : pos;
-        Track created = trackBank.getItemAt(flatIndex);
+        settle();
+        int expectedFlatIndex = effect ? countTracks() + pos : pos;
         String expectedType = effect ? "Effect" : type;
+        int flatIndex = findInsertedTrackIndex(beforeSnapshot, snapshotTracks(effect), expectedFlatIndex, expectedType);
+        if (flatIndex < 0) {
+            throw new BitwigApiException(ErrorCode.OPERATION_FAILED, operation,
+                "Track was created but could not be located; not renaming anything");
+        }
+        Track created = trackBank.getItemAt(flatIndex);
         if (!created.exists().get() || isMaster(created) || !expectedType.equalsIgnoreCase(created.trackType().get())) {
             throw new BitwigApiException(ErrorCode.OPERATION_FAILED, operation,
                 "Track was created but could not be located at index " + flatIndex + "; not renaming anything");
