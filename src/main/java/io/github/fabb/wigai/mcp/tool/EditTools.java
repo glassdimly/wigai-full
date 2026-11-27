@@ -467,6 +467,41 @@ public class EditTools {
                     a.integer("chain_device_index"), list, !Boolean.FALSE.equals(a.bool("verify")));
             }));
 
+        specs.add(tool("list_direct_parameters",
+            "List all direct parameters of a device (including parameters not on any remote-control page, such as "
+                + "EQ+ band types/enables, Filter+ modes, or full plugin parameter lists). Filter matches id or name "
+                + "(case-insensitive). Display values are fetched automatically when <= 64 parameters match.",
+            DEVICE_PROPS + ",\n" + CHAIN_PROPS + """
+                ,
+                "filter": {"type": "string", "description": "Case-insensitive substring match against parameter id or name"},
+                "include_display": {"type": "boolean", "description": "Fetch formatted display strings (default: true when <= 64 results)"},
+                "limit": {"type": "integer", "minimum": 1, "description": "Max parameters to return (default 100)"},
+                "offset": {"type": "integer", "minimum": 0, "description": "Starting offset into matched parameters (default 0)"}""",
+            "\"device_index\"", f, log,
+            a -> f.listDirectParameters(a.track(), a.requiredInt("device_index"), a.string("chain"),
+                a.integer("chain_device_index"), a.string("filter"), a.bool("include_display"),
+                a.integer("limit"), a.integer("offset"))));
+
+        specs.add(tool("set_direct_parameter",
+            "Set any direct parameter on a device by parameter_id (from list_direct_parameters) or unique name. "
+                + "Value is normalized 0-1; the response includes the updated value and formatted display string.",
+            DEVICE_PROPS + ",\n" + CHAIN_PROPS + """
+                ,
+                "parameter_id": {"type": "string", "description": "Exact parameter id from list_direct_parameters"},
+                "name": {"type": "string", "description": "Case-insensitive exact parameter name (if unique)"},
+                "value": {"type": "number", "minimum": 0, "maximum": 1},
+                "verify": {"type": "boolean", "description": "Wait for Bitwig to confirm the new value (default true)"}""",
+            "\"device_index\", \"value\"", f, log,
+            a -> {
+                Double v = a.number("value");
+                if (v == null) {
+                    throw new IllegalArgumentException("Missing required parameter 'value'");
+                }
+                return f.setDirectParameter(a.track(), a.requiredInt("device_index"), a.string("chain"),
+                    a.integer("chain_device_index"), a.string("parameter_id"), a.string("name"),
+                    v, !Boolean.FALSE.equals(a.bool("verify")));
+            }));
+
         // ---- clips and files
         specs.add(tool("insert_file",
             "Import an audio or MIDI file. With slot_index it goes into that clip-launcher slot of the track; "

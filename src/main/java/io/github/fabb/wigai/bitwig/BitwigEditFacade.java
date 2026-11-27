@@ -12,11 +12,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -41,6 +46,11 @@ public class BitwigEditFacade {
         public static final String DEVICE_LIST_RESOURCE = "/bitwig-devices.txt";
         public static final int CHAIN_DEVICES = 32;
         public static final int LAYERS = 16;
+        public static final int DIRECT_NAME_MAX_CHARS = 64;
+        public static final int DIRECT_DISPLAY_MAX_CHARS = 32;
+        public static final int DIRECT_RESOLUTION = 65536;
+        public static final int DIRECT_DISPLAY_AUTO_LIMIT = 64;
+        public static final int DIRECT_DEFAULT_LIMIT = 100;
 
         private Constants() {}
     }
@@ -59,6 +69,12 @@ public class BitwigEditFacade {
     private final Clip editClip;
     private final Map<String, BitwigDevice> bitwigDevices;
     private final long timeoutMs;
+    private final DirectParameterValueDisplayObserver directDisplayObserver;
+    private volatile String[] directParamIds = new String[0];
+    private final ConcurrentHashMap<String, String> directParamNames = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Double> directParamValues = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> directParamDisplays = new ConcurrentHashMap<>();
+    private final AtomicLong directParamGeneration = new AtomicLong(0);
 
     public BitwigEditFacade(ControllerHost host, Logger logger, Application application, Transport transport,
                             TrackBank trackBank, List<DeviceBank> trackDeviceBanks) {
@@ -84,6 +100,32 @@ public class BitwigEditFacade {
         this.primary = new ChainCursor(editDevice);
         this.secondary = new ChainCursor(editTrack.createCursorDevice("WIGAI_EDIT_DEVICE_2", "WigAI edit device 2", 0,
             CursorDeviceFollowMode.FIRST_DEVICE));
+
+        editDevice.addDirectParameterIdObserver(ids -> {
+            String[] copy = ids == null ? new String[0] : ids.clone();
+            directParamIds = copy;
+            Set<String> active = new HashSet<>(Arrays.asList(copy));
+            directParamNames.keySet().retainAll(active);
+            directParamValues.keySet().retainAll(active);
+            directParamDisplays.keySet().retainAll(active);
+            directParamGeneration.incrementAndGet();
+        });
+        editDevice.addDirectParameterNameObserver(Constants.DIRECT_NAME_MAX_CHARS, (id, name) -> {
+            if (id != null) {
+                directParamNames.put(id, name == null ? "" : name);
+            }
+        });
+        editDevice.addDirectParameterNormalizedValueObserver((id, value) -> {
+            if (id != null) {
+                directParamValues.put(id, value);
+            }
+        });
+        this.directDisplayObserver = editDevice.addDirectParameterValueDisplayObserver(
+            Constants.DIRECT_DISPLAY_MAX_CHARS, (id, display) -> {
+                if (id != null) {
+                    directParamDisplays.put(id, display == null ? "" : display);
+                }
+            });
 
         application.panelLayout().markInterested();
         editTrack.position().markInterested();
@@ -1119,6 +1161,196 @@ public class BitwigEditFacade {
         }
         result.put("pages", pages);
         return result;
+    }
+
+    private void focusDirectTarget(int trackIndex, int deviceIndex, String chain, Integer chainDeviceIndex,
+                                   String operation) throws BitwigApiException {
+        long genBefore = directParamGeneration.get();
+        focusTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
+        if (directParamGeneration.get() == genBefore && directParamIds.length == 0) {
+            waitFor(() -> directParamGeneration.get() > genBefore, 500);
+        }
+        settle();
+    }
+
+    /**
+     * Lists all direct parameters exposed by Bitwig for a device (including parameters not on any
+     * remote-control page), with optional case-insensitive filtering and pagination.
+     */
+    public Map<String, Object> listDirectParameters(int trackIndex, int deviceIndex, String chain,
+                                                    Integer chainDeviceIndex, String filter, Boolean includeDisplay,
+                                                    Integer limit, Integer offset) throws BitwigApiException {
+        final String operation = "listDirectParameters";
+        int off = offset == null ? 0 : offset;
+        int lim = limit == null ? Constants.DIRECT_DEFAULT_LIMIT : limit;
+        if (off < 0) {
+            throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation, "offset must be >= 0");
+        }
+        if (lim < 1) {
+            throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation, "limit must be >= 1");
+        }
+        focusDirectTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
+        String[] allIds = directParamIds;
+        String needle = (filter == null || filter.isBlank()) ? null : filter.trim().toLowerCase(Locale.ROOT);
+        List<String> matched = new ArrayList<>();
+        for (String id : allIds) {
+            String pName = directParamNames.getOrDefault(id, "");
+            if (needle == null
+                    || id.toLowerCase(Locale.ROOT).contains(needle)
+                    || pName.toLowerCase(Locale.ROOT).contains(needle)) {
+                matched.add(id);
+            }
+        }
+        int start = Math.min(off, matched.size());
+        int end = Math.min(start + lim, matched.size());
+        List<String> slice = matched.subList(start, end);
+        boolean wantDisplay = includeDisplay != null
+            ? includeDisplay
+            : slice.size() <= Constants.DIRECT_DISPLAY_AUTO_LIMIT;
+
+        List<Map<String, Object>> params = new ArrayList<>(slice.size());
+        boolean observing = wantDisplay && !slice.isEmpty() && directDisplayObserver != null;
+        if (observing) {
+            directDisplayObserver.setObservedParameterIds(slice.toArray(new String[0]));
+            waitFor(() -> slice.stream().allMatch(directParamDisplays::containsKey), 400);
+            settle();
+        }
+        try {
+            for (String id : slice) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", id);
+                m.put("name", directParamNames.getOrDefault(id, ""));
+                Double v = directParamValues.get(id);
+                if (v != null && !Double.isNaN(v)) {
+                    m.put("value", v);
+                }
+                if (wantDisplay) {
+                    String disp = directParamDisplays.get(id);
+                    if (disp != null) {
+                        m.put("display", disp);
+                    }
+                }
+                params.add(m);
+            }
+        } finally {
+            if (observing) {
+                directDisplayObserver.setObservedParameterIds(null);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("track_index", trackIndex);
+        result.put("device_index", deviceIndex);
+        if (chain != null) {
+            result.put("chain", chain);
+            result.put("chain_device_index", chainDeviceIndex);
+        }
+        result.put("device", editDevice.name().get());
+        result.put("total_count", allIds.length);
+        result.put("matched_count", matched.size());
+        result.put("offset", start);
+        result.put("parameters", params);
+        return result;
+    }
+
+    /**
+     * Sets a single direct parameter on any device by parameter_id (or unambiguous case-insensitive name).
+     * Normalized values in [0, 1] are scaled to [0, DIRECT_RESOLUTION - 1] as required by Bitwig's API.
+     */
+    public Map<String, Object> setDirectParameter(int trackIndex, int deviceIndex, String chain,
+                                                  Integer chainDeviceIndex, String parameterId, String parameterName,
+                                                  double value, boolean verify) throws BitwigApiException {
+        final String operation = "setDirectParameter";
+        if (Double.isNaN(value) || value < 0.0 || value > 1.0) {
+            throw new BitwigApiException(ErrorCode.INVALID_RANGE, operation, "value must be in 0..1");
+        }
+        if ((parameterId == null || parameterId.isBlank()) && (parameterName == null || parameterName.isBlank())) {
+            throw new BitwigApiException(ErrorCode.MISSING_REQUIRED_PARAMETER, operation,
+                "Provide parameter_id or name");
+        }
+        focusDirectTarget(trackIndex, deviceIndex, chain, chainDeviceIndex, operation);
+        String[] allIds = directParamIds;
+        String targetId = null;
+        if (parameterId != null && !parameterId.isBlank()) {
+            for (String id : allIds) {
+                if (parameterId.equals(id)) {
+                    targetId = id;
+                    break;
+                }
+            }
+            if (targetId == null) {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                    "Unknown direct parameter id '" + parameterId + "' on device '" + editDevice.name().get()
+                        + "'. Use list_direct_parameters.");
+            }
+        } else {
+            List<String> matches = new ArrayList<>();
+            for (String id : allIds) {
+                if (parameterName.trim().equalsIgnoreCase(directParamNames.getOrDefault(id, ""))) {
+                    matches.add(id);
+                }
+            }
+            if (matches.isEmpty()) {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                    "No direct parameter named '" + parameterName + "' on device '" + editDevice.name().get()
+                        + "'. Use list_direct_parameters.");
+            }
+            if (matches.size() > 1) {
+                throw new BitwigApiException(ErrorCode.INVALID_PARAMETER, operation,
+                    "Ambiguous direct parameter name '" + parameterName + "'; specify parameter_id: "
+                        + String.join(", ", matches));
+            }
+            targetId = matches.get(0);
+        }
+
+        final String resolvedId = targetId;
+        boolean observing = directDisplayObserver != null;
+        if (observing) {
+            directParamDisplays.remove(resolvedId);
+            directDisplayObserver.setObservedParameterIds(new String[]{resolvedId});
+        }
+        try {
+            double scaled = value * (Constants.DIRECT_RESOLUTION - 1);
+            editDevice.setDirectParameterValueNormalized(resolvedId, scaled, Constants.DIRECT_RESOLUTION);
+            boolean applied;
+            if (verify) {
+                applied = waitFor(() -> {
+                    Double cur = directParamValues.get(resolvedId);
+                    return cur != null && !Double.isNaN(cur) && Math.abs(cur - value) < 0.02;
+                });
+                if (observing) {
+                    waitFor(() -> directParamDisplays.containsKey(resolvedId), 300);
+                }
+                settle();
+            } else {
+                settle();
+                applied = true;
+            }
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("track_index", trackIndex);
+            result.put("device_index", deviceIndex);
+            if (chain != null) {
+                result.put("chain", chain);
+                result.put("chain_device_index", chainDeviceIndex);
+            }
+            result.put("device", editDevice.name().get());
+            result.put("id", resolvedId);
+            result.put("name", directParamNames.getOrDefault(resolvedId, ""));
+            Double cur = directParamValues.get(resolvedId);
+            if (cur != null && !Double.isNaN(cur)) {
+                result.put("value", cur);
+            }
+            String disp = directParamDisplays.get(resolvedId);
+            if (disp != null) {
+                result.put("display", disp);
+            }
+            result.put("applied", applied);
+            return result;
+        } finally {
+            if (observing) {
+                directDisplayObserver.setObservedParameterIds(null);
+            }
+        }
     }
 
     /** A single parameter assignment: by page + index, or by name (searched across all pages). */

@@ -1,5 +1,9 @@
 package io.github.fabb.wigai.bitwig;
 
+import com.bitwig.extension.callback.DirectParameterDisplayedValueChangedCallback;
+import com.bitwig.extension.callback.DirectParameterNameChangedCallback;
+import com.bitwig.extension.callback.DirectParameterNormalizedValueChangedCallback;
+import com.bitwig.extension.callback.StringArrayValueChangedCallback;
 import com.bitwig.extension.controller.api.*;
 import io.github.fabb.wigai.common.Logger;
 import io.github.fabb.wigai.common.error.BitwigApiException;
@@ -45,6 +49,12 @@ class BitwigEditFacadeBehaviourTest {
     private final double[][] values = new double[PAGES.length][8];
     private final AtomicReference<Double> fader = new AtomicReference<>(0.5);
     private final AtomicBoolean slotHasContent = new AtomicBoolean(false);
+    private final Map<String, Double> directValues = new java.util.LinkedHashMap<>();
+    private final Map<String, String> directNames = new java.util.LinkedHashMap<>();
+    private DirectParameterValueDisplayObserver directDisplayObserver;
+    private DirectParameterNormalizedValueChangedCallback directValCb;
+    private DirectParameterDisplayedValueChangedCallback directDispCb;
+    private PinnableCursorDevice editDevice;
 
     /** A ranged value that ignores set() and applies setImmediately(), like Bitwig does for extensions. */
     private static SettableRangedValue rangedValue(java.util.function.DoubleSupplier read,
@@ -116,9 +126,67 @@ class BitwigEditFacadeBehaviourTest {
 
         // private edit cursor: track, device, remote-control page, launcher clip
         CursorTrack editTrack = mock(CursorTrack.class, RETURNS_DEEP_STUBS);
-        PinnableCursorDevice editDevice = mock(PinnableCursorDevice.class, RETURNS_DEEP_STUBS);
+        editDevice = mock(PinnableCursorDevice.class, RETURNS_DEEP_STUBS);
         CursorRemoteControlsPage page = mock(CursorRemoteControlsPage.class, RETURNS_DEEP_STUBS);
         clip = mock(PinnableCursorClip.class, RETURNS_DEEP_STUBS);
+
+        // direct parameter observers on editDevice
+        directNames.put("CONTENTS/MIX", "Mix");
+        directNames.put("CONTENTS/DECAY", "Decay");
+        directNames.put("CONTENTS/DUP1", "Gain");
+        directNames.put("CONTENTS/DUP2", "Gain");
+        directValues.put("CONTENTS/MIX", 0.5);
+        directValues.put("CONTENTS/DECAY", 0.25);
+        directValues.put("CONTENTS/DUP1", 0.5);
+        directValues.put("CONTENTS/DUP2", 0.5);
+
+        AtomicReference<StringArrayValueChangedCallback> idCbRef = new AtomicReference<>();
+        AtomicReference<DirectParameterNameChangedCallback> nameCbRef = new AtomicReference<>();
+        doAnswer(inv -> {
+            idCbRef.set(inv.getArgument(0));
+            return null;
+        }).when(editDevice).addDirectParameterIdObserver(any());
+        doAnswer(inv -> {
+            nameCbRef.set(inv.getArgument(1));
+            return null;
+        }).when(editDevice).addDirectParameterNameObserver(anyInt(), any());
+        doAnswer(inv -> {
+            directValCb = inv.getArgument(0);
+            return null;
+        }).when(editDevice).addDirectParameterNormalizedValueObserver(any());
+        directDisplayObserver = mock(DirectParameterValueDisplayObserver.class);
+        when(editDevice.addDirectParameterValueDisplayObserver(anyInt(), any())).thenAnswer(inv -> {
+            directDispCb = inv.getArgument(1);
+            return directDisplayObserver;
+        });
+        doAnswer(inv -> {
+            String[] observed = inv.getArgument(0);
+            if (observed != null && directDispCb != null) {
+                for (String id : observed) {
+                    Double v = directValues.get(id);
+                    if (v != null) {
+                        directDispCb.directParameterDisplayedValueChanged(id,
+                            String.format(java.util.Locale.ROOT, "%.1f %%", v * 100));
+                    }
+                }
+            }
+            return null;
+        }).when(directDisplayObserver).setObservedParameterIds(any());
+        doAnswer(inv -> {
+            String id = inv.getArgument(0);
+            double scaled = ((Number) inv.getArgument(1)).doubleValue();
+            double res = ((Number) inv.getArgument(2)).doubleValue();
+            double norm = scaled / (res - 1.0);
+            directValues.put(id, norm);
+            if (directValCb != null) {
+                directValCb.directParameterNormalizedValueChanged(id, norm);
+            }
+            if (directDispCb != null) {
+                directDispCb.directParameterDisplayedValueChanged(id,
+                    String.format(java.util.Locale.ROOT, "%.1f %%", norm * 100));
+            }
+            return null;
+        }).when(editDevice).setDirectParameterValueNormalized(anyString(), any(), any());
         when(host.createCursorTrack(anyString(), anyString(), anyInt(), anyInt(), anyBoolean())).thenReturn(editTrack);
         when(editTrack.createCursorDevice(anyString(), anyString(), anyInt(), any())).thenReturn(editDevice);
         when(editDevice.createCursorRemoteControlsPage(8)).thenReturn(page);
@@ -155,6 +223,17 @@ class BitwigEditFacadeBehaviourTest {
 
         facade = new BitwigEditFacade(host, mock(Logger.class), application, transport, trackBank,
             List.of(deviceBank), 0);
+
+        // Push initial direct parameters as Bitwig does on focus
+        if (idCbRef.get() != null) {
+            idCbRef.get().valueChanged(directNames.keySet().toArray(new String[0]));
+        }
+        if (nameCbRef.get() != null) {
+            directNames.forEach((id, n) -> nameCbRef.get().directParameterNameChanged(id, n));
+        }
+        if (directValCb != null) {
+            directValues.forEach((id, v) -> directValCb.directParameterNormalizedValueChanged(id, v));
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -290,5 +369,49 @@ class BitwigEditFacadeBehaviourTest {
         verify(device).deleteObject();
         facade.duplicateTrack(0);
         verify(track).duplicate();
+    }
+
+    @Test
+    void listsDirectParametersWithFilterPaginationAndDisplayCleanup() throws Exception {
+        Map<String, Object> all = facade.listDirectParameters(0, 0, null, null, null, null, null, null);
+        assertEquals(4, all.get("total_count"));
+        assertEquals(4, all.get("matched_count"));
+        List<Map<String, Object>> params = list(all.get("parameters"));
+        assertEquals("CONTENTS/MIX", params.get(0).get("id"));
+        assertEquals("Mix", params.get(0).get("name"));
+        assertEquals(0.5, (Double) params.get(0).get("value"), 1e-9);
+        assertEquals("50.0 %", params.get(0).get("display"));
+        verify(directDisplayObserver, atLeastOnce()).setObservedParameterIds(isNull());
+
+        Map<String, Object> filtered = facade.listDirectParameters(0, 0, null, null, "dec", true, 10, 0);
+        assertEquals(1, filtered.get("matched_count"));
+        assertEquals("CONTENTS/DECAY", list(filtered.get("parameters")).get(0).get("id"));
+
+        Map<String, Object> paged = facade.listDirectParameters(0, 0, null, null, null, false, 2, 1);
+        assertEquals(2, list(paged.get("parameters")).size());
+        assertEquals("CONTENTS/DECAY", list(paged.get("parameters")).get(0).get("id"));
+        assertNull(list(paged.get("parameters")).get(0).get("display"));
+    }
+
+    @Test
+    void setsDirectParameterByIdAndUniqueNameAndValidatesErrors() throws Exception {
+        Map<String, Object> r = facade.setDirectParameter(0, 0, null, null, "CONTENTS/MIX", null, 0.75, true);
+        assertEquals(true, r.get("applied"));
+        assertEquals("CONTENTS/MIX", r.get("id"));
+        assertEquals("75.0 %", r.get("display"));
+        assertEquals(0.75, directValues.get("CONTENTS/MIX"), 1e-4);
+
+        Map<String, Object> byName = facade.setDirectParameter(0, 0, null, null, null, "decay", 0.4, true);
+        assertEquals("CONTENTS/DECAY", byName.get("id"));
+        assertEquals(0.4, directValues.get("CONTENTS/DECAY"), 1e-4);
+
+        // Ambiguous name ("Gain" matches DUP1 and DUP2) must fail clearly
+        assertThrows(BitwigApiException.class,
+            () -> facade.setDirectParameter(0, 0, null, null, null, "Gain", 0.5, true));
+        // Unknown id and out-of-range value must fail
+        assertThrows(BitwigApiException.class,
+            () -> facade.setDirectParameter(0, 0, null, null, "CONTENTS/NOPE", null, 0.5, true));
+        assertThrows(BitwigApiException.class,
+            () -> facade.setDirectParameter(0, 0, null, null, "CONTENTS/MIX", null, 1.5, true));
     }
 }
