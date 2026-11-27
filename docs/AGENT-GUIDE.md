@@ -35,7 +35,9 @@ shows them.
 - `replace_device` swaps a device for another device or a preset, in place.
 - Drum Machines: `list_drum_pads`, `set_drum_pad`, `insert_into_drum_pad` (a sample file becomes a Sampler).
   Layer devices: `list_layers`, `set_layer`, and chain `layer:N` on the device tools.
-- `set_device_parameters` sets any control by name or page and index; `play_notes` auditions a sound without
+- `set_device_parameters` sets any remote-control parameter by name or page and index; `list_direct_parameters` /
+  `set_direct_parameter` access every direct parameter Bitwig exposes on a device (including parameters not on any
+  remote-control page, such as EQ+ band types or full plugin parameter lists); `play_notes` auditions a sound without
   writing a clip. `get_device_parameters` shows `modulated_value` for controls a modulator is moving.
 
 ## Write and shape music

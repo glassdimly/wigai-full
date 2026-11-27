@@ -13,7 +13,7 @@ Everything here is meant to go upstream to [fabb/WigAI](https://github.com/fabb/
 | Tracks and mixer | `create_track`, `delete_track`, `duplicate_track`, `get_track_mixer`, `set_track`, `set_send` |
 | Devices | `list_bitwig_devices`, `insert_device`, `copy_device`, `move_device`, `delete_device`, `set_device_enabled`, `set_device_window_open` |
 | Chains inside devices | `get_device_chains`, plus `chain` / `chain_device_index` on the device tools (slots such as a Vocoder's Modulator/Carrier, FX slots, layers) |
-| Parameters of any device | `get_device_parameters`, `set_device_parameters` (all remote-control pages, by name or page+index) |
+| Parameters of any device | `get_device_parameters`, `set_device_parameters` (all remote-control pages, by name or page+index); `list_direct_parameters`, `set_direct_parameter` (all direct parameters on a device, including those not on any remote-control page) |
 | Clips and notes | `insert_file`, `create_clip`, `delete_clip`, `write_notes`, `read_notes`, `set_clip` |
 | Listening | `set_engine_active`, `get_levels`, `play_notes` |
 | Arrangement | `list_cue_markers`, `go_to_cue_marker`, `set_arrangement` (loop range, time signature), `rename_scene` |
@@ -42,7 +42,7 @@ These need changes in Bitwig itself; tools should tell the user to do them by ha
 - **Placing clips on the arranger timeline**, or reading where arranger clips are.
 - **Adding or removing modulators** (LFOs, envelopes) and modulation routings. Their effect can be read: `get_device_parameters` reports a control's modulated value.
 - **Writing automation points.** Only by recording parameter changes with automation write enabled.
-- **Parameters that are not on a remote-control page** ([fabb/WigAI#15](https://github.com/fabb/WigAI/issues/15)).
+- **Internal Grid module parameters and patching.** `list_direct_parameters` exposes top-level Poly/FX/Note Grid parameters (Output, Pitch, Device Phase, Note/Control Thru), but Bitwig's Controller API does not expose individual modules or patch cables inside a Grid.
 - **Rendering, bouncing or exporting audio**, other than through application actions where Bitwig offers one.
 - **Moving or copying tracks.** Bitwig 6.1.3 accepts `InsertionPoint.moveTracks/copyTracks` from an extension and silently does nothing, on the request thread and on the control thread alike (tested 2026-10-17). `duplicate_track` does work for copies.
 - **Opening a project from disk.** Only cycling through projects that are already open.
